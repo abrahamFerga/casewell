@@ -1,0 +1,12 @@
+{
+  "name": "legal-read-is-not-gated",
+  "module": "legal",
+  "message": "List my matters",
+  "role": "system_admin",
+  "seedMatters": [],
+  "expectToolCalls": ["list_matters"],
+  "forbidToolCalls": ["create_matter", "set_matter_status"],
+  "expectApproval": false,
+  "replyMustContain": ["list_matters"],
+  "replyMustNotContain": ["requires human approval"]
+}
