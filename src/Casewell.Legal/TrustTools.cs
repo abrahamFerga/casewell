@@ -125,15 +125,24 @@ public sealed class TrustTools(
         var entries = await db.TrustTransactions
             .Where(t => t.MatterId == matter.Id)
             .OrderBy(t => t.OccurredOn).ThenBy(t => t.CreatedAt)
-            .Take(200)
             .ToListAsync(cancellationToken);
         if (entries.Count == 0)
         {
             return $"Matter '{matter.Name}' has no trust activity. Record client funds with record_trust_deposit.";
         }
 
+        // A long ledger lists its most recent page the way a paper one would: earlier activity
+        // collapses into a brought-forward balance, so the final balance is always the true one.
         var sb = new StringBuilder($"Trust ledger — matter '{matter.Name}':\n");
         var running = 0m;
+        if (entries.Count > 200)
+        {
+            var earlier = entries[..^200];
+            running = TrustAccounting.Balance(earlier);
+            sb.AppendLine($"- ({earlier.Count} earlier entr(ies) — balance brought forward: {TrustAccounting.Money(running)})");
+            entries = entries[^200..];
+        }
+
         foreach (var e in entries)
         {
             running += e.Type == TrustTransactionType.Deposit ? e.Amount : -e.Amount;
