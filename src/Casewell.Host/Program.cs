@@ -71,6 +71,12 @@ builder.Services.AddCortexRole("paralegal",
     "tools.legal.list_matters",
         "tools.legal.log_time",
         "tools.legal.list_time",
+        // Time capture is paralegal work; billing is not. The timer goes in, but expenses,
+        // drafting, approving, and sending an invoice all stay with firm-admin — a paralegal
+        // never runs billing (SPEC.md's RBAC model).
+        "tools.legal.start_timer",
+        "tools.legal.stop_timer",
+        "tools.legal.timer_status",
         "tools.legal.add_task",
         "tools.legal.list_tasks",
         "tools.legal.complete_task",
