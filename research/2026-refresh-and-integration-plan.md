@@ -144,7 +144,7 @@ integration required.** The rules are concrete
 client funds live in a separate trust account, every matter keeps its own ledger, **a negative
 client-ledger balance is treated as misappropriation even when the account total is positive**,
 and most bars mandate a monthly three-way reconciliation (bank statement = book balance = sum
-of client ledgers), retained 5–7 years. **Designed** (next build): `TrustTransaction`
+of client ledgers), retained 5–7 years. **Implemented**: `TrustTransaction`
 (matter-scoped deposit/disbursement, approval-gated, append-only), the fail-closed guard —
 a disbursement exceeding the matter's trust balance is refused, not warned —
 `trust_balance`/`list_trust_transactions`, and `export_trust_reconciliation`: the three-way

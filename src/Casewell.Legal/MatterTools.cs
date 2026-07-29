@@ -183,18 +183,35 @@ public sealed class MatterTools(
             return $"'{status}' is not a matter status. Use 'open', 'on-hold', or 'closed'.";
         }
 
-        if (next == MatterStatus.Closed && !force)
+        if (next == MatterStatus.Closed)
         {
-            // Close-out completeness: a matter with unmet obligations doesn't close silently.
-            var openEvents = await db.MatterEvents
-                .CountAsync(e => e.MatterId == matter.Id && e.CompletedAt == null, cancellationToken);
-            var openTasks = await db.MatterTasks
-                .CountAsync(t => t.MatterId == matter.Id && t.CompletedAt == null, cancellationToken);
-            if (openEvents > 0 || openTasks > 0)
+            // Client money outlives every other close-out concern, and force does not apply:
+            // Model Rule 1.15 says funds are promptly delivered when the representation ends —
+            // the compliant path out is a recorded disbursement (fees earned, refund to client,
+            // or transfer to an unclaimed-funds process), never closing around the balance.
+            var trustBalance = TrustAccounting.Balance(await db.TrustTransactions
+                .Where(t => t.MatterId == matter.Id)
+                .ToListAsync(cancellationToken));
+            if (trustBalance != 0)
             {
-                return $"Matter '{matter.Name}' still has {openEvents} open event(s) and {openTasks} open task(s). " +
-                       "Complete them (complete_event / complete_task), or - only after the user explicitly " +
-                       "confirms - close anyway with force.";
+                return $"Matter '{matter.Name}' still holds {TrustAccounting.Money(trustBalance)} in trust. " +
+                       "Disburse or return the funds (record_trust_disbursement) before closing — " +
+                       "this check cannot be forced.";
+            }
+
+            if (!force)
+            {
+                // Close-out completeness: a matter with unmet obligations doesn't close silently.
+                var openEvents = await db.MatterEvents
+                    .CountAsync(e => e.MatterId == matter.Id && e.CompletedAt == null, cancellationToken);
+                var openTasks = await db.MatterTasks
+                    .CountAsync(t => t.MatterId == matter.Id && t.CompletedAt == null, cancellationToken);
+                if (openEvents > 0 || openTasks > 0)
+                {
+                    return $"Matter '{matter.Name}' still has {openEvents} open event(s) and {openTasks} open task(s). " +
+                           "Complete them (complete_event / complete_task), or - only after the user explicitly " +
+                           "confirms - close anyway with force.";
+                }
             }
         }
 

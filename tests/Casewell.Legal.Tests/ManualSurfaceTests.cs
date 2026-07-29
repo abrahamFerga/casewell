@@ -15,7 +15,7 @@ public sealed class ManualSurfaceTests
     public void Tabs_ArePinned_InOrder()
     {
         Assert.Equal(
-            ["chat", "matters", "clients", "calendar", "tasks", "time", "hours", "clauses", "playbook"],
+            ["chat", "matters", "clients", "calendar", "tasks", "time", "hours", "trust", "clauses", "playbook"],
             Manifest.Tabs.OrderBy(t => t.Order).Select(t => t.Id));
     }
 
@@ -39,9 +39,12 @@ public sealed class ManualSurfaceTests
         Assert.Equal(LegalModule.ManageLibrary, manifest.Tabs.First(t => t.Id == "clauses").Editor!.Permission);
         Assert.Equal(LegalModule.ManageLibrary, manifest.Tabs.First(t => t.Id == "playbook").Editor!.Permission);
 
-        // Chat and the chart never grow forms.
+        // Chat and the chart never grow forms — and neither does the trust ledger: its writes
+        // exist only as approval-gated, append-only chat tools, so a hand-edit form would be a
+        // back door around the compliance model.
         Assert.Null(manifest.Tabs.First(t => t.Id == "chat").Editor);
         Assert.Null(manifest.Tabs.First(t => t.Id == "hours").Editor);
+        Assert.Null(manifest.Tabs.First(t => t.Id == "trust").Editor);
     }
 
     [Fact]

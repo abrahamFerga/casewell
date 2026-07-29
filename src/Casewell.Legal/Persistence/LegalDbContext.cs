@@ -27,6 +27,7 @@ public sealed class LegalDbContext(
     public DbSet<ConflictAttestation> ConflictAttestations => Set<ConflictAttestation>();
     public DbSet<TimeEntry> TimeEntries => Set<TimeEntry>();
     public DbSet<MatterTask> MatterTasks => Set<MatterTask>();
+    public DbSet<TrustTransaction> TrustTransactions => Set<TrustTransaction>();
     public DbSet<TenantClause> Clauses => Set<TenantClause>();
     public DbSet<DocumentTemplate> DocumentTemplates => Set<DocumentTemplate>();
     public DbSet<PlaybookRule> PlaybookRules => Set<PlaybookRule>();
@@ -99,6 +100,23 @@ public sealed class LegalDbContext(
             b.HasIndex(x => x.MatterId);
             b.HasIndex(x => new { x.TenantId, x.CompletedAt });
             b.HasOne<Matter>().WithMany().HasForeignKey(x => x.MatterId).OnDelete(DeleteBehavior.Cascade);
+            b.HasQueryFilter(x => x.TenantId == tenantContext.TenantId);
+        });
+
+        modelBuilder.Entity<TrustTransaction>(b =>
+        {
+            b.ToTable("trust_transactions");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Type).HasConversion<string>().HasMaxLength(16);
+            b.Property(x => x.Amount).HasPrecision(14, 2);
+            b.Property(x => x.Description).HasMaxLength(500).IsRequired();
+            b.Property(x => x.Reference).HasMaxLength(100);
+            b.Property(x => x.UserDisplay).HasMaxLength(200);
+            b.HasIndex(x => x.MatterId);
+            b.HasIndex(x => new { x.TenantId, x.OccurredOn });
+            // Restrict, not cascade: trust records carry a 5–7 year bar retention duty — the
+            // database refuses to let a matter deletion take its ledger with it.
+            b.HasOne<Matter>().WithMany().HasForeignKey(x => x.MatterId).OnDelete(DeleteBehavior.Restrict);
             b.HasQueryFilter(x => x.TenantId == tenantContext.TenantId);
         });
 

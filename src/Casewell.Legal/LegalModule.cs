@@ -38,7 +38,7 @@ public sealed class LegalModule : IModule
     {
         Id = Id,
         DisplayName = "Legal",
-        Version = "1.9.0",
+        Version = "1.10.0",
         Description = "Matter-centric legal assistant. Organize case documents into matters, search a clause library, and draft clauses for review.",
         Icon = "scale",
         AgentInstructions =
@@ -66,6 +66,15 @@ public sealed class LegalModule : IModule
             "approval needed, it is the one quick-capture write; answer 'what did I work on' with list_time. " +
             "BILLING: when asked to prepare a bill or pre-bill, use export_prebill (matter, optional date " +
             "range) — it files the PDF on the matter for billing review. " +
+            "TRUST ACCOUNTING: client money is never the firm's money. Record retainers, settlement " +
+            "proceeds, and cost advances with record_trust_deposit; record fee transfers, filing fees, and " +
+            "refunds with record_trust_disbursement — both name the matter, the amount, and what the money " +
+            "is for. A disbursement that would overdraw the matter's ledger is REFUSED (never re-record or " +
+            "work around it — tell the user the balance and stop). Answer 'how much is in trust' with " +
+            "trust_balance and 'show the ledger' with list_trust_transactions. Monthly, or when asked to " +
+            "reconcile, use export_trust_reconciliation with the bank statement's closing balance — it files " +
+            "the three-way worksheet. Corrections are contra entries (an offsetting deposit/disbursement " +
+            "with a description saying what it corrects), never edits. " +
             "TASKS: capture to-dos with add_task (matter, title, optional assignee and target date); answer " +
             "'what's open' with list_tasks and close them with complete_task. Hard court dates stay on the " +
             "calendar, not the task list. " +
@@ -307,6 +316,39 @@ public sealed class LegalModule : IModule
                 Name = "export_prebill",
                 Description = "Generate a pre-bill (time entries + billable totals over a period) as a PDF filed on the matter. Side-effecting: writes a document and requires human approval.",
                 Permission = Permissions.ForTool(Id, "export_prebill"),
+                RequiresApproval = true,
+            },
+            new ToolDescriptor
+            {
+                Name = "record_trust_deposit",
+                Description = "Record a deposit of client funds into the trust account for a matter (retainer, settlement, cost advance). Append-only compliance record; side-effecting and requires human approval.",
+                Permission = Permissions.ForTool(Id, "record_trust_deposit"),
+                RequiresApproval = true,
+            },
+            new ToolDescriptor
+            {
+                Name = "record_trust_disbursement",
+                Description = "Record a disbursement of client funds from trust (fee transfer, filing fee, refund). Fail-closed: refused if it would overdraw the matter's ledger. Side-effecting and requires human approval.",
+                Permission = Permissions.ForTool(Id, "record_trust_disbursement"),
+                RequiresApproval = true,
+            },
+            new ToolDescriptor
+            {
+                Name = "trust_balance",
+                Description = "A matter's trust balance, or every matter ledger plus the firm's trust book balance.",
+                Permission = Permissions.ForTool(Id, "trust_balance"),
+            },
+            new ToolDescriptor
+            {
+                Name = "list_trust_transactions",
+                Description = "A matter's full trust ledger, oldest first with a running balance.",
+                Permission = Permissions.ForTool(Id, "list_trust_transactions"),
+            },
+            new ToolDescriptor
+            {
+                Name = "export_trust_reconciliation",
+                Description = "Generate the monthly three-way trust reconciliation (bank vs. book vs. client ledgers) as a PDF worksheet in the document store. Side-effecting: writes a document and requires human approval.",
+                Permission = Permissions.ForTool(Id, "export_trust_reconciliation"),
                 RequiresApproval = true,
             },
             new ToolDescriptor
@@ -645,7 +687,24 @@ public sealed class LegalModule : IModule
             },
             new TabDescriptor
             {
-                Id = "clauses", Label = "Clauses", Route = "/legal/clauses", Icon = "file-text", Order = 7,
+                // Deliberately read-only (no Editor): the market's UX rule is that trust money
+                // renders visually segregated from operating money, and this module's stricter
+                // rule is that trust writes exist ONLY as approval-gated, append-only chat tools —
+                // a hand-edit form on a client ledger would be a back door around both.
+                Id = "trust", Label = "Trust", Route = "/legal/trust", Icon = "landmark", Order = 7,
+                Permission = ViewMatters,
+                DataEndpoint = "/api/legal/trust-transactions",
+                Placeholder = "No client funds on the books. Trust activity is recorded in Chat - try: 'Record a $5,000 retainer into trust on Acme'. Every entry needs your approval, the ledger is append-only, and a disbursement can never overdraw a matter's balance.",
+                Columns =
+                [
+                    new("occurredOn", "Date"), new("matterName", "Matter"), new("type", "Type"),
+                    new("amount", "Amount"), new("description", "Description"),
+                    new("reference", "Reference"), new("who", "Recorded by"),
+                ],
+            },
+            new TabDescriptor
+            {
+                Id = "clauses", Label = "Clauses", Route = "/legal/clauses", Icon = "file-text", Order = 8,
                 Permission = ViewClauses,
                 DataEndpoint = "/api/legal/clauses",
                 Columns = [new("title", "Clause"), new("category", "Category"), new("summary", "Summary")],
@@ -669,7 +728,7 @@ public sealed class LegalModule : IModule
             },
             new TabDescriptor
             {
-                Id = "playbook", Label = "Playbook", Route = "/legal/playbook", Icon = "shield-check", Order = 8,
+                Id = "playbook", Label = "Playbook", Route = "/legal/playbook", Icon = "shield-check", Order = 9,
                 Permission = ViewClauses,
                 DataEndpoint = "/api/legal/playbook",
                 Columns = [new("severity", "Severity"), new("title", "Rule"), new("guidance", "Guidance")],
@@ -697,6 +756,7 @@ public sealed class LegalModule : IModule
         services.AddScoped<ConflictTools>();
         services.AddScoped<CalendarTools>();
         services.AddScoped<TimeTools>();
+        services.AddScoped<TrustTools>();
         services.AddScoped<TaskTools>();
         services.AddScoped<BriefingTools>();
         services.AddHostedService<DeadlineReminderService>();
@@ -946,6 +1006,31 @@ public sealed class LegalModule : IModule
             .RequireAuthorization(PermissionRequirement.PolicyName(ViewMatters))
             .WithName("Legal_GetEvents");
 
+        // The trust journal — drives the read-only Trust tab. Wall-filtered like the events
+        // list: a walled matter's activity stays invisible here (the reconciliation export is
+        // the surface that counts every ledger, names redacted).
+        group.MapGet("/trust-transactions", async (
+                LegalDbContext db, Cortex.Core.Identity.ICurrentUser current, CancellationToken cancellationToken) =>
+            {
+                var matters = (await db.Matters
+                        .Select(m => new { m.Id, m.Name, m.RestrictedUserIdsJson })
+                        .ToListAsync(cancellationToken))
+                    .Where(m => Matter.WallAllows(m.RestrictedUserIdsJson, current.UserId))
+                    .ToDictionary(m => m.Id, m => m.Name);
+                var rows = (await db.TrustTransactions
+                        .OrderByDescending(t => t.OccurredOn).ThenByDescending(t => t.CreatedAt)
+                        .Take(500)
+                        .ToListAsync(cancellationToken))
+                    .Where(t => matters.ContainsKey(t.MatterId))
+                    .Select(t => new TrustTransactionDto(
+                        t.Id, t.OccurredOn, matters[t.MatterId],
+                        t.Type == Persistence.TrustTransactionType.Deposit ? "deposit" : "disbursement",
+                        TrustAccounting.Money(t.Amount), t.Description, t.Reference, t.UserDisplay));
+                return Results.Ok(rows);
+            })
+            .RequireAuthorization(PermissionRequirement.PolicyName(ViewMatters))
+            .WithName("Legal_GetTrustTransactions");
+
         // A matter's attached documents (file ids resolve against /api/files/{id}). Outside the
         // wall, the matter 404s — indistinguishable from missing, like cross-tenant ids.
         // The matter's working file as a generic DETAIL DOCUMENT (drill-down from the Matters tab):
@@ -1066,6 +1151,10 @@ public sealed class LegalModule : IModule
 
     private sealed record MatterEventDto(
         Guid Id, DateTimeOffset StartsAt, string Type, string Title, string MatterName, string Urgency, string? Notes);
+
+    private sealed record TrustTransactionDto(
+        Guid Id, DateOnly OccurredOn, string MatterName, string Type, string Amount,
+        string Description, string? Reference, string? Who);
 
     private sealed record ClauseDto(Guid Id, string Slug, string Title, string Category, string Summary, string Template);
 
