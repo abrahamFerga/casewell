@@ -17,6 +17,7 @@ public sealed class LegalToolSource : IModuleToolSource
         var conflicts = scopedServices.GetRequiredService<ConflictTools>();
         var calendar = scopedServices.GetRequiredService<CalendarTools>();
         var time = scopedServices.GetRequiredService<TimeTools>();
+        var trust = scopedServices.GetRequiredService<TrustTools>();
         var tasks = scopedServices.GetRequiredService<TaskTools>();
         var briefing = scopedServices.GetRequiredService<BriefingTools>();
 
@@ -42,6 +43,44 @@ public sealed class LegalToolSource : IModuleToolSource
                 Name = "export_prebill",
                 Permission = Permissions.ForTool(ModuleId, "export_prebill"),
                 Function = AIFunctionFactory.Create(time.ExportPrebill, name: "export_prebill"),
+                RequiresApproval = true,
+            },
+            new ModuleTool
+            {
+                ModuleId = ModuleId,
+                Name = "record_trust_deposit",
+                Permission = Permissions.ForTool(ModuleId, "record_trust_deposit"),
+                Function = AIFunctionFactory.Create(trust.RecordTrustDeposit, name: "record_trust_deposit"),
+                RequiresApproval = true,
+            },
+            new ModuleTool
+            {
+                ModuleId = ModuleId,
+                Name = "record_trust_disbursement",
+                Permission = Permissions.ForTool(ModuleId, "record_trust_disbursement"),
+                Function = AIFunctionFactory.Create(trust.RecordTrustDisbursement, name: "record_trust_disbursement"),
+                RequiresApproval = true,
+            },
+            new ModuleTool
+            {
+                ModuleId = ModuleId,
+                Name = "trust_balance",
+                Permission = Permissions.ForTool(ModuleId, "trust_balance"),
+                Function = AIFunctionFactory.Create(trust.TrustBalance, name: "trust_balance"),
+            },
+            new ModuleTool
+            {
+                ModuleId = ModuleId,
+                Name = "list_trust_transactions",
+                Permission = Permissions.ForTool(ModuleId, "list_trust_transactions"),
+                Function = AIFunctionFactory.Create(trust.ListTrustTransactions, name: "list_trust_transactions"),
+            },
+            new ModuleTool
+            {
+                ModuleId = ModuleId,
+                Name = "export_trust_reconciliation",
+                Permission = Permissions.ForTool(ModuleId, "export_trust_reconciliation"),
+                Function = AIFunctionFactory.Create(trust.ExportTrustReconciliation, name: "export_trust_reconciliation"),
                 RequiresApproval = true,
             },
             new ModuleTool

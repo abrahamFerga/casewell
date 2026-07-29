@@ -203,10 +203,11 @@ internal static class ManualCrudEndpoints
                     await db.MatterTasks.AnyAsync(t => t.MatterId == id, cancellationToken) ||
                     await db.TimeEntries.AnyAsync(t => t.MatterId == id, cancellationToken) ||
                     await db.MatterParties.AnyAsync(p => p.MatterId == id, cancellationToken) ||
-                    await db.ConflictAttestations.AnyAsync(a => a.MatterId == id, cancellationToken);
+                    await db.ConflictAttestations.AnyAsync(a => a.MatterId == id, cancellationToken) ||
+                    await db.TrustTransactions.AnyAsync(t => t.MatterId == id, cancellationToken);
                 if (hasHistory)
                 {
-                    return Results.Conflict(new { error = $"Matter '{matter.Name}' has documents, dates, tasks, time, or attestations on record — close it instead of deleting." });
+                    return Results.Conflict(new { error = $"Matter '{matter.Name}' has documents, dates, tasks, time, trust activity, or attestations on record — close it instead of deleting." });
                 }
 
                 db.Matters.Remove(matter);

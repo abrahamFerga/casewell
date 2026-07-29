@@ -4,7 +4,7 @@
 
 **The free, open-source AI assistant that runs a law practice — and leaves you in charge.**
 
-Matters · Docketing · Conflict checks · Drafting · Time & pre-bills · Client intake over WhatsApp
+Matters · Docketing · Conflict checks · Drafting · Time & pre-bills · Trust accounting · Client intake over WhatsApp
 
 *Free to use. MIT licensed. Every AI action permission-checked, approval-gated, and audited.*
 
@@ -24,6 +24,8 @@ practice is — around **matters** — and its AI assistant does real work insid
 | *"Draft an NDA and file it on the matter"* | Drafts from **your** clause library, renders the PDF, and waits for **your approval** before filing |
 | *"Log half an hour — call with opposing counsel"* | A billable time entry, captured the moment you mention it |
 | *"Review this contract against our playbook"* | Every rule checked, every finding cited to the file |
+| *"Put the $5,000 retainer into trust on Acme"* | An append-only IOLTA ledger entry, approval-gated — and a disbursement that would overdraw the client's balance is refused, not warned |
+| *"Reconcile trust against the bank statement"* | The three-way worksheet (bank · book · client ledgers), rendered to PDF and filed as evidence |
 | *"Brief me on Meridian"* | Parties, deadlines, tasks, hours, documents — one look |
 
 Clients can reach the practice over **WhatsApp** or the firm's **intake email address** — messages and attachments land as conflict-checkable intake, filed where they belong. The firm's existing documents stay where they are: connect **SharePoint/OneDrive, Google Drive, an S3 bucket, or Azure Blob** and the assistant works on them in place.
