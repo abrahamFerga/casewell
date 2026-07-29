@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Casewell.AppHost/Casewell.AppHost.csproj" />
+    <Project Path="src/Casewell.Host/Casewell.Host.csproj" />
+    <Project Path="src/Casewell.Legal/Casewell.Legal.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Casewell.Legal.Tests/Casewell.Legal.Tests.csproj" />
+  </Folder>
+</Solution>

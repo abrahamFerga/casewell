@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!-- THE PRODUCT: a thin host on the Cortex platform packages. One AddCortexPlatform() call
+       brings RBAC, multi-tenancy, audit, chat (AG-UI + SignalR), document tools, RAG, jobs,
+       and the admin API; then the legal module and the connectors this product ships with. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>casewell-host</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Cortex.AspNetCore" Version="0.1.0-alpha.14" />
+    <PackageReference Include="Cortex.Connectors" Version="0.1.0-alpha.14" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Casewell.Legal\Casewell.Legal.csproj" />
+  </ItemGroup>
+
+</Project>
