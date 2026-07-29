@@ -1,6 +1,6 @@
 # Operations
 
-Deployment, environments, runbooks, and the compliance procedures every TheLawyer operator needs to know.
+Deployment, environments, runbooks, and the compliance procedures every Casewell operator needs to know.
 
 ## Environments
 
@@ -17,10 +17,10 @@ Per [ARCH.md ADR-0005](DECISIONS.md), v1 is single-region. Multi-region is docum
 ```bash
 # 1. One-time setup
 dotnet workload restore
-cd web/thelawyer-web && npm install && cd -
+cd web/casewell-web && npm install && cd -
 
 # 2. Start the whole stack
-dotnet run --project src/TheLawyer.AppHost
+dotnet run --project src/Casewell.AppHost
 
 # 3. The Aspire dashboard prints URLs for: api, web, postgres, redis, pgadmin.
 ```
@@ -32,13 +32,13 @@ Migrations live with the Infrastructure project. EF Core CLI is required (`dotne
 ```bash
 # Add a new migration
 dotnet ef migrations add <DescriptiveName> \
-  --project src/TheLawyer.Infrastructure \
-  --startup-project src/TheLawyer.Api
+  --project src/Casewell.Infrastructure \
+  --startup-project src/Casewell.Api
 
 # Apply migrations locally (Aspire AppHost wires the connection string)
 dotnet ef database update \
-  --project src/TheLawyer.Infrastructure \
-  --startup-project src/TheLawyer.Api
+  --project src/Casewell.Infrastructure \
+  --startup-project src/Casewell.Api
 ```
 
 Production: migrations run as a separate Container App job (not inline at app startup). The deploy pipeline runs `dotnet ef migrations script` in CI, then applies the script in a dedicated job that completes before the API rolls out.
@@ -54,7 +54,7 @@ terraform init \
   -backend-config="resource_group_name=tfstate-rg" \
   -backend-config="storage_account_name=tfstate<unique>" \
   -backend-config="container_name=tfstate" \
-  -backend-config="key=thelawyer-${ENVIRONMENT}.tfstate"
+  -backend-config="key=casewell-${ENVIRONMENT}.tfstate"
 
 terraform plan -var-file=tfvars/${ENVIRONMENT}.tfvars
 terraform apply -var-file=tfvars/${ENVIRONMENT}.tfvars

@@ -1,7 +1,7 @@
-# TheLawyer — Architecture
+# Casewell — Architecture
 
 > **Realigned 2026-07-02** (see [ADR-0007](DECISIONS.md#adr-0007-adopt-the-cortex-platform-retire-the-hand-rolled-foundation)):
-> TheLawyer is a **thin product host on the Cortex platform**. Cortex — a
+> Casewell is a **thin product host on the Cortex platform**. Cortex — a
 > multi-tenant, module-based agent platform (.NET 10 + Aspire + MAF) — supplies
 > authentication/authorization, multi-tenancy, RBAC, append-only audit, chat
 > (AG-UI + SignalR), document/PDF tools, RAG, background jobs, connectors, and
@@ -27,9 +27,9 @@ Diagram: [`docs/diagrams/c2-containers.puml`](docs/diagrams/c2-containers.puml)
 
 | Container | Tech | Purpose |
 |---|---|---|
-| `TheLawyer.AppHost` | .NET 10 Aspire AppHost | Orchestration: pgvector Postgres (platform + audit DBs), Redis, the API. AI provider/model/key are AppHost parameters (default `Mock`). |
-| `TheLawyer.Host` | ASP.NET Core + `Cortex.AspNetCore` | The product. `AddCortexPlatform()` + `AddCortexModule<LegalModule>()` + four connectors. All platform endpoints (chat, admin, connectors, jobs, RAG) come from the package. |
-| `TheLawyer.Legal` | `Cortex.Modules.Sdk` module | The legal domain: matters, parties, ethical walls, clause library, playbook, bulk review, matter knowledge (RAG), folder sync. Own EF Core `LegalDbContext` + migrations. |
+| `Casewell.AppHost` | .NET 10 Aspire AppHost | Orchestration: pgvector Postgres (platform + audit DBs), Redis, the API. AI provider/model/key are AppHost parameters (default `Mock`). |
+| `Casewell.Host` | ASP.NET Core + `Cortex.AspNetCore` | The product. `AddCortexPlatform()` + `AddCortexModule<LegalModule>()` + four connectors. All platform endpoints (chat, admin, connectors, jobs, RAG) come from the package. |
+| `Casewell.Legal` | `Cortex.Modules.Sdk` module | The legal domain: matters, parties, ethical walls, clause library, playbook, bulk review, matter knowledge (RAG), folder sync. Own EF Core `LegalDbContext` + migrations. |
 | Postgres | `pgvector/pgvector:pg17` | `cortex-platform` (platform + module schemas, embeddings) and `cortex-audit` (append-only audit) databases. |
 | Redis | Redis 7 | Cache/backplane (platform-managed). |
 | Web UI | `@cortex/ui` + `@cortex/admin-ui` (React) | Domain UI (chat with AG-UI transport, drag-drop uploads, module tabs) and admin console (security map, users/roles, usage, audit, connectors). Served from the Cortex frontend packages; until they publish to npm, run from the Cortex repo with `VITE_API_BASE` pointed at this API. |
@@ -53,7 +53,7 @@ Diagram: [`docs/diagrams/c3-components-api.puml`](docs/diagrams/c3-components-ap
 
 - **`LegalModule`** (`IModule`, manifest v1.3.0) — 13 agent tools over matters, clause library, playbook, walls, bulk review; module tabs for the UI shell; `MatterRagGate` (an `IRagCollectionGate`: matter-scoped knowledge respects ethical walls); `MatterSyncHandler` (folder-sync → matter documents → RAG ingest).
 - **`LegalDbContext`** — module-owned schema + 3 migrations (matters/parties, clause library/playbook, walls).
-- **Host composition** (`TheLawyer.Host/Program.cs`):
+- **Host composition** (`Casewell.Host/Program.cs`):
 
 ```csharp
 builder.AddCortexPlatform();
@@ -70,14 +70,14 @@ await app.RunCortexPlatformAsync();
 
 ```
 the-lawyer/
-├── TheLawyer.slnx
+├── Casewell.slnx
 ├── nuget.config                      # local .packages feed for Cortex.* until they publish
 ├── src/
-│   ├── TheLawyer.AppHost/            # Aspire: pgvector pg17, Redis, API; AI params (Mock default)
-│   ├── TheLawyer.Host/               # AddCortexPlatform() + module + connectors
-│   └── TheLawyer.Legal/              # the legal module (domain code only)
+│   ├── Casewell.AppHost/            # Aspire: pgvector pg17, Redis, API; AI params (Mock default)
+│   ├── Casewell.Host/               # AddCortexPlatform() + module + connectors
+│   └── Casewell.Legal/              # the legal module (domain code only)
 ├── tests/
-│   └── TheLawyer.Legal.Tests/        # module unit tests
+│   └── Casewell.Legal.Tests/        # module unit tests
 ├── research/ SPEC.md PLAN.md ARCH.md DECISIONS.md
 └── docs/diagrams/                    # C4 PlantUML
 ```
@@ -86,7 +86,7 @@ the-lawyer/
 
 All rows below are **platform behavior configured, not implemented, here**:
 
-| Concern | How TheLawyer gets it |
+| Concern | How Casewell gets it |
 |---|---|
 | AuthN | Dev: `X-Dev-*` headers. Prod: external IdP JWT with `Auth:PermissionSource=Token` (Cortex translates IdP roles → permissions via editable baselines). |
 | AuthZ | Cortex RBAC; legal tools surface as `tools.legal.*` permissions in the admin security catalog. |

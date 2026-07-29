@@ -12,13 +12,13 @@ Per [`formats/adr.md`](https://github.com/abrahamfernandez/the-workflow/blob/mai
 
 ### Context
 
-`GUARDRAILS.md` §2 requires a single in-process background-job scheduler. TheWorkflow's `dotnet-aspire-base` skill defaults to Quartz.NET. For TheLawyer, the Firm Admin persona has visibility into running jobs as a real value-add: trust-reconciliation reminders, invoice-send batches, GDPR-export progress, document-indexing jobs, connector dispatch — Firm Admins want to see what's queued, retry what failed, and pause what's noisy.
+`GUARDRAILS.md` §2 requires a single in-process background-job scheduler. TheWorkflow's `dotnet-aspire-base` skill defaults to Quartz.NET. For Casewell, the Firm Admin persona has visibility into running jobs as a real value-add: trust-reconciliation reminders, invoice-send batches, GDPR-export progress, document-indexing jobs, connector dispatch — Firm Admins want to see what's queued, retry what failed, and pause what's noisy.
 
 Quartz.NET has no built-in dashboard. Hangfire ships a dashboard out of the box (`/hangfire` route), with retry, pause, and inspection actions.
 
 ### Decision
 
-We will use **Hangfire** (with the `Hangfire.PostgreSql` storage provider) for all background jobs in TheLawyer. The dashboard is exposed at `/hangfire`, gated by the `Connectors.Manage` policy (Firm Admin role).
+We will use **Hangfire** (with the `Hangfire.PostgreSql` storage provider) for all background jobs in Casewell. The dashboard is exposed at `/hangfire`, gated by the `Connectors.Manage` policy (Firm Admin role).
 
 ### Consequences
 

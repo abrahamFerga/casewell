@@ -83,7 +83,7 @@ coverage/
 *.lcov
 # Local Cortex package feed: ignore old versions, commit the CURRENT one so CI can restore.
 .packages/*
-!.packages/*0.1.0-alpha.9*
+!.packages/*0.1.0-alpha.14*
 !.packages/aspire.apphost.sdk.*
 bin/
 obj/

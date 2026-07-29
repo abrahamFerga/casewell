@@ -5,7 +5,7 @@
 Please report security issues privately. Do **not** open a public GitHub issue.
 
 - **Email**: abraham.fdzg@gmail.com
-- Use subject prefix `[security] TheLawyer:`
+- Use subject prefix `[security] Casewell:`
 - Expect an acknowledgement within 7 days
 
 We follow a 90-day coordinated disclosure model. Once a fix is shipped we credit the reporter (unless they request anonymity) in the release notes.
@@ -15,7 +15,7 @@ We follow a 90-day coordinated disclosure model. Once a fix is shipped we credit
 In scope:
 
 - The .NET solution under `src/`
-- The SPA under `web/thelawyer-web/`
+- The SPA under `web/casewell-web/`
 - Terraform under `infra/azure/`
 - CI workflows under `.github/workflows/`
 - Configuration (`appsettings.json`, `workflow.json`, `.claude/settings.json`)
@@ -29,7 +29,7 @@ Out of scope:
 
 ## Threat model
 
-TheLawyer holds attorney-client privileged information. Privilege attaches per-matter; isolation is mission-critical.
+Casewell holds attorney-client privileged information. Privilege attaches per-matter; isolation is mission-critical.
 
 ### High-impact threats
 

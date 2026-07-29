@@ -1,4 +1,4 @@
-# TheLawyer — Plan
+# Casewell — Plan
 
 ## Epics (in build order)
 
@@ -17,24 +17,24 @@
 
 | Module (.NET project) | Bounded context | Capabilities served | Stack/pattern skills used to build it |
 |---|---|---|---|
-| `TheLawyer.AppHost` | (orchestration) | Aspire AppHost composing every resource | `dotnet-aspire-base` |
-| `TheLawyer.ServiceDefaults` | (cross-cutting) | OTel + health checks + resilience | `dotnet-aspire-base` |
-| `TheLawyer.Domain` | domain | Entities + value objects + domain events + PII attribute | `dotnet-aspire-base` |
-| `TheLawyer.Application` | application core | Cross-cutting handlers, abstractions (`IAiAssistantService`, `ITenantContext`, `IAuditLog`, `IConflictAttestor`) | `dotnet-aspire-base`, `rbac` *(planned)*, `multi-tenant` *(planned)* |
-| `TheLawyer.Application.Matters` | matters | Matter management, intake, conflict-check, contacts, parties | `rbac` *(planned)* |
-| `TheLawyer.Application.Documents` | documents | Doc mgmt, Word-template merge | (none yet — custom) |
-| `TheLawyer.Application.Calendar` | calendar | Events, deadlines, reminders | (none yet — custom) |
-| `TheLawyer.Application.Billing` | billing | Time, invoices, expenses | (none yet — custom) |
-| `TheLawyer.Application.Trust` | trust | IOLTA ledger with API-layer guardrails | (none yet — custom) |
-| `TheLawyer.Application.Portal` | client portal | Client-facing read + pay + sign use-cases | (none yet — custom) |
-| `TheLawyer.Application.AiAssistant` | ai | MAF-based matter chatbot via `IAiAssistantService` impl | `maf-agents` *(planned)*, `industry-chatbot` *(planned)* |
-| `TheLawyer.Application.Connectors` | connectors | Connector registry, `IChannel` + `IIntegration` contracts | `pluggable-connectors` |
-| `TheLawyer.Application.Reporting` | reporting | Read-models + queries for dashboards | (none yet — custom) |
-| `TheLawyer.Infrastructure` | infrastructure | EF Core, outbox, multi-tenant query filters, audit log | `dotnet-aspire-base` |
-| `TheLawyer.Infrastructure.Azure` | infrastructure (cloud) | Azure-specific: Key Vault, Blob, Service Bus, Entra ID | `azure-terraform` *(planned)* |
-| `TheLawyer.Infrastructure.Slack` | infrastructure (connector) | Slack `IChannel` implementation | `pluggable-connectors` |
-| `TheLawyer.Api` | api | Minimal APIs grouped by bounded context, versioned (`/api/v1/...`), Problem Details, idempotency keys, rate limiting | `dotnet-aspire-base`, `rbac` *(planned)* |
-| `TheLawyer.Web` | web | Vite + React + TS + shadcn/ui + Tailwind + PWA | `react-vite-shadcn` *(planned)*, `dashboard-portal` *(planned)*, `industry-chatbot` *(planned)* |
+| `Casewell.AppHost` | (orchestration) | Aspire AppHost composing every resource | `dotnet-aspire-base` |
+| `Casewell.ServiceDefaults` | (cross-cutting) | OTel + health checks + resilience | `dotnet-aspire-base` |
+| `Casewell.Domain` | domain | Entities + value objects + domain events + PII attribute | `dotnet-aspire-base` |
+| `Casewell.Application` | application core | Cross-cutting handlers, abstractions (`IAiAssistantService`, `ITenantContext`, `IAuditLog`, `IConflictAttestor`) | `dotnet-aspire-base`, `rbac` *(planned)*, `multi-tenant` *(planned)* |
+| `Casewell.Application.Matters` | matters | Matter management, intake, conflict-check, contacts, parties | `rbac` *(planned)* |
+| `Casewell.Application.Documents` | documents | Doc mgmt, Word-template merge | (none yet — custom) |
+| `Casewell.Application.Calendar` | calendar | Events, deadlines, reminders | (none yet — custom) |
+| `Casewell.Application.Billing` | billing | Time, invoices, expenses | (none yet — custom) |
+| `Casewell.Application.Trust` | trust | IOLTA ledger with API-layer guardrails | (none yet — custom) |
+| `Casewell.Application.Portal` | client portal | Client-facing read + pay + sign use-cases | (none yet — custom) |
+| `Casewell.Application.AiAssistant` | ai | MAF-based matter chatbot via `IAiAssistantService` impl | `maf-agents` *(planned)*, `industry-chatbot` *(planned)* |
+| `Casewell.Application.Connectors` | connectors | Connector registry, `IChannel` + `IIntegration` contracts | `pluggable-connectors` |
+| `Casewell.Application.Reporting` | reporting | Read-models + queries for dashboards | (none yet — custom) |
+| `Casewell.Infrastructure` | infrastructure | EF Core, outbox, multi-tenant query filters, audit log | `dotnet-aspire-base` |
+| `Casewell.Infrastructure.Azure` | infrastructure (cloud) | Azure-specific: Key Vault, Blob, Service Bus, Entra ID | `azure-terraform` *(planned)* |
+| `Casewell.Infrastructure.Slack` | infrastructure (connector) | Slack `IChannel` implementation | `pluggable-connectors` |
+| `Casewell.Api` | api | Minimal APIs grouped by bounded context, versioned (`/api/v1/...`), Problem Details, idempotency keys, rate limiting | `dotnet-aspire-base`, `rbac` *(planned)* |
+| `Casewell.Web` | web | Vite + React + TS + shadcn/ui + Tailwind + PWA | `react-vite-shadcn` *(planned)*, `dashboard-portal` *(planned)*, `industry-chatbot` *(planned)* |
 
 Skills marked *(planned)* don't exist in TheWorkflow yet. The Foundations epic will be generated with custom code where the planned skills don't yet provide guidance; once those skills land in TheWorkflow, the affected files can be re-generated or refactored to match the patterns they encode.
 

@@ -62,7 +62,7 @@ its UI packages run from source until they publish to npm).
 git clone https://github.com/abrahamFerga/casewell
 git clone https://github.com/abrahamFerga/Cortex     # sibling directory
 cd casewell
-dotnet run --project src/TheLawyer.AppHost
+dotnet run --project src/Casewell.AppHost
 ```
 
 The Aspire dashboard opens with everything running: the API, Postgres (pgvector), Redis, the

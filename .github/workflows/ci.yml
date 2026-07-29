@@ -27,10 +27,10 @@ jobs:
           dotnet-version: '10.0.x'
 
       - name: Restore
-        run: dotnet restore TheLawyer.slnx
+        run: dotnet restore Casewell.slnx
 
       - name: Build (Release)
-        run: dotnet build TheLawyer.slnx -c Release --no-restore
+        run: dotnet build Casewell.slnx -c Release --no-restore
 
       - name: Test
-        run: dotnet test TheLawyer.slnx -c Release --no-build --verbosity normal
+        run: dotnet test Casewell.slnx -c Release --no-build --verbosity normal

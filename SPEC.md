@@ -1,8 +1,8 @@
-# TheLawyer — Product specification
+# Casewell — Product specification
 
 ## In one sentence
 
-TheLawyer is a multi-tenant practice management platform for US-based small law firms (5–25 attorneys) that takes a matter from intake through invoice and trust-account reconciliation, with an AI assistant that answers questions about any matter on demand.
+Casewell is a multi-tenant practice management platform for US-based small law firms (5–25 attorneys) that takes a matter from intake through invoice and trust-account reconciliation, with an AI assistant that answers questions about any matter on demand.
 
 ## Primary jobs to be done
 
