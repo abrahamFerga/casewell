@@ -29,6 +29,14 @@
     "project": 7,
     "visibility": "public"
   },
+  "autonomy": {
+    "level": 0,
+    "maxOpenPRs": 3,
+    "maxMergesPerTick": 2,
+    "readyFloor": 3,
+    "maxIssuesPerSweep": 8,
+    "maxNewCapabilities": 5
+  },
   "skills": {
     "self": {
       "marketplace": "my-skills",
