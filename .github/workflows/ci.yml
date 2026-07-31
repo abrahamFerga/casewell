@@ -3,8 +3,10 @@ name: CI
 on:
   push:
     branches: [main]
+  # Deliberately unfiltered: a stacked PR targets its parent branch, not main, and a
+  # `branches: [main]` filter silently gives those PRs no checks at all. Every pull request
+  # gets tested regardless of what it targets.
   pull_request:
-    branches: [main]
   workflow_dispatch:
 
 permissions:

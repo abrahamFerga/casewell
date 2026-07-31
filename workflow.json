@@ -1,7 +1,11 @@
 {
   "name": "casewell",
   "industry": "legal",
-  "stage": "development",
+  "loop": "deliver",
+  "platform": {
+    "version": "0.1.0-alpha.14",
+    "feed": "vendored"
+  },
   "cloud": "azure",
   "connectors": [
     "slack",
@@ -29,15 +33,26 @@
     "project": 7,
     "visibility": "public"
   },
+  "autonomy": {
+    "level": 0,
+    "maxOpenPRs": 3,
+    "maxMergesPerTick": 2,
+    "readyFloor": 3,
+    "maxIssuesPerSweep": 8,
+    "maxNewCapabilities": 5
+  },
   "skills": {
     "self": {
-      "marketplace": "my-skills",
-      "repo": "abrahamFerga/my-skills",
+      "marketplace": "plenipo-agents",
+      "repo": "abrahamFerga/plenipo-agents",
       "plugins": [
-        "workflow-core",
-        "system-definition",
-        "architecture",
-        "development"
+        "plenipo",
+        "harness",
+        "scout",
+        "define",
+        "shape",
+        "deliver",
+        "steward"
       ]
     },
     "external": [
