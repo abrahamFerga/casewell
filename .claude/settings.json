@@ -8,12 +8,6 @@
         "repo": "abrahamFerga/plenipo-agents"
       }
     },
-    "my-skills": {
-      "source": {
-        "source": "github",
-        "repo": "abrahamFerga/my-skills"
-      }
-    },
     "dotnet/skills": {
       "source": {
         "source": "github",
@@ -36,11 +30,6 @@
     "shape@plenipo-agents": true,
     "deliver@plenipo-agents": true,
     "steward@plenipo-agents": false,
-
-    "workflow-core@my-skills": true,
-    "system-definition@my-skills": false,
-    "architecture@my-skills": false,
-    "development@my-skills": true,
 
     "dotnet@dotnet/skills": true,
     "dotnet-aspnet@dotnet/skills": true,
