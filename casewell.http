@@ -1,0 +1,203 @@
+# Casewell — the runnable request catalog.
+#
+# Open in VS Code (REST Client) or a JetBrains IDE and fire these at a running instance.
+# Dev-auth headers mean there is no token setup. WHEN YOU ADD AN ENDPOINT, ADD ITS REQUEST HERE
+# IN THE SAME PR.
+#
+# @base is the API's HTTP endpoint. Under the Aspire AppHost, read it off the dashboard resource
+# `casewell-api`; under headless Mode B (see RUNBOOK.md §2) it is the --urls value below.
+
+@base = http://127.0.0.1:8094
+@subject = dev-user
+@tenant = dev
+@roles = system_admin
+@module = legal
+
+### Liveness — never calls the LLM, safe to poll
+GET {{base}}/alive
+
+### Health — dependencies (DB) reachable
+GET {{base}}/health
+
+### Branding (anonymous — the only unauthenticated platform route)
+GET {{base}}/api/platform/branding
+
+### ─────────────────────────── Platform ───────────────────────────
+
+### Modules + the tabs this caller can see. Must contain "legal".
+GET {{base}}/api/platform/modules
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Who am I — user, tenant, effective permissions
+GET {{base}}/api/platform/me
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Build / platform info
+GET {{base}}/api/platform/info
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### ─────────────────────────── Chat over AG-UI ───────────────────────────
+
+### A read-only turn. Streams RUN_STARTED → TOOL_CALL_* → TEXT_MESSAGE_* → CUSTOM(token_usage)
+### → RUN_FINISHED. Any RUN_ERROR is a failure, never noise.
+POST {{base}}/api/agui/{{module}}
+Content-Type: application/json
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+{
+  "messages": [{ "id": "m1", "role": "user", "content": "List my matters" }]
+}
+
+### An approval-gated write. Emits CUSTOM(approval_required); the reply must NOT claim the write
+### happened. Seed the matter first with the POST /api/legal/matters request below.
+POST {{base}}/api/agui/{{module}}
+Content-Type: application/json
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+{
+  "messages": [{ "id": "m1", "role": "user", "content": "Record a 5000 retainer deposit into trust on Acme Corp - NDA" }]
+}
+
+### Conversations
+GET {{base}}/api/chat/conversations
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### ─────────────────────────── Approvals (human in the loop) ───────────────────────────
+
+### Pending approvals — needs chat.approvals.manage
+GET {{base}}/api/chat/approvals
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Approve one (paste an id from the list above) → { status: "Executed", result: "..." }
+POST {{base}}/api/chat/approvals/00000000-0000-0000-0000-000000000000/approve
+Content-Type: application/json
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+{}
+
+### Reject one → { status: "Rejected" }, and nothing is written
+POST {{base}}/api/chat/approvals/00000000-0000-0000-0000-000000000000/reject
+Content-Type: application/json
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+{}
+
+### ─────────────────────────── Admin (RBAC, audit, usage) ───────────────────────────
+
+### Every tool + the permission gating it. After adding a tool this MUST list it — if it does not,
+### the manifest and IModuleToolSource disagree and the tool will never be callable.
+GET {{base}}/api/admin/security/catalog
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Append-only tool-call audit — every invocation, with its permission and outcome
+GET {{base}}/api/admin/audit/tool-calls
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Roles
+GET {{base}}/api/admin/roles
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Users
+GET {{base}}/api/admin/users
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### RBAC negative check — a narrow role must be refused, not gated. Expect 403.
+GET {{base}}/api/admin/security/catalog
+X-Dev-Subject: outsider
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: guest
+
+### ─────────────────────────── Legal module (the hand-edit surface) ───────────────────────────
+
+### Matters
+GET {{base}}/api/legal/matters
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Create a matter (legal.manage — a person on a form needs no approval gate; RBAC is the gate)
+POST {{base}}/api/legal/matters
+Content-Type: application/json
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+{
+  "name": "Acme Corp - NDA",
+  "clientName": "Acme Corp",
+  "practiceArea": "Corporate"
+}
+
+### Clients
+GET {{base}}/api/legal/clients
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Calendar events
+GET {{base}}/api/legal/events
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Tasks
+GET {{base}}/api/legal/tasks
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Time entries (drives the Time tab)
+GET {{base}}/api/legal/time-entries
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Weekly hours (drives the Hours tab)
+GET {{base}}/api/legal/time/weekly
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Trust journal (drives the read-only Trust tab)
+GET {{base}}/api/legal/trust-transactions
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Clause library
+GET {{base}}/api/legal/clauses
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Contract-review playbook
+GET {{base}}/api/legal/playbook
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
