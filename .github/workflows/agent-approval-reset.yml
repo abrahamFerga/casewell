@@ -1,0 +1,44 @@
+# Approval expiry. Deterministic — no AI, no secrets, no third-party actions.
+#
+# `agent:approved` is a statement about a diff, not about a pull request. Without this, a PR reviewed
+# at commit A keeps the label through commit B, and the scheduled merger — which re-reads the world
+# but cannot tell a fresh label from a stale one — merges code nothing ever looked at. That is the
+# one way the whole gate list can be green over unreviewed changes.
+#
+# `add-labels` in the reviewer can only ADD, so expiry has to live here. The reviewer re-runs on the
+# same `synchronize` event and re-labels from scratch; this job finishes in seconds while that takes
+# minutes, so the new verdict lands after the reset, not before it.
+name: Reset agent approval
+
+on:
+  pull_request:
+    types: [synchronize]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: approval-reset-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  reset:
+    name: Drop a verdict the new commits have not earned
+    runs-on: ubuntu-latest
+    steps:
+      # A label that is not set is the normal case, not a failure — this must never be the reason a
+      # pull request goes red, or it becomes the thing people disable.
+      - name: Clear the review verdict
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          for label in 'agent:approved' 'agent:changes-requested'; do
+            if gh api -X DELETE "repos/$REPO/issues/$PR/labels/$label" >/dev/null 2>&1; then
+              echo "cleared  $label"
+            else
+              echo "not set  $label"
+            fi
+          done
