@@ -66,8 +66,37 @@ for (const [number, mustFail, why] of cases) {
   }
 }
 
+// ── The linked issue must be named before the merge, not discovered after it ──
+// A `GITHUB_TOKEN` merge without `issues: write` closes the pull request and silently leaves the
+// issue open, so an unattended board keeps advertising merged work. That failure was invisible
+// because nothing in the run log ever mentioned the issue. These assert on the dry run — the step
+// `agent-merge.yml` always executes — so the intent is on record even when the merge is skipped.
+//
+// Asserts on the NOTE rather than on a close actually happening: closing needs `gh` and a live
+// repo, which this file deliberately does not have.
+const closeCases = [
+  [906, /closes #150\b/, 'a linked issue must be named in the run log, or a silent no-close is invisible'],
+  [907, /closes nothing/, 'a pull request that will close nothing must say so before it merges'],
+];
+
+for (const [number, mustMatch, why] of closeCases) {
+  const reasons = reasonsFor(number);
+  if (reasons === null) {
+    console.log(`  FAIL #${number} — not present in the gate's output at all`);
+    failed++;
+    continue;
+  }
+
+  if (mustMatch.test(reasons)) {
+    console.log(`  ok   #${number} — ${why}`);
+  } else {
+    console.log(`  FAIL #${number} — expected ${mustMatch} in the report.\n       ${why}\n       reported:\n${reasons}`);
+    failed++;
+  }
+}
+
 if (failed) {
   console.log(`\n${failed} rollup case(s) wrong. merge-gate is the last automated thing before main — do not merge this.\n`);
   process.exit(1);
 }
-console.log(`\nOK — ${cases.length} rollup case(s) behave correctly.\n`);
+console.log(`\nOK — ${cases.length} rollup and ${closeCases.length} linked-issue case(s) behave correctly.\n`);

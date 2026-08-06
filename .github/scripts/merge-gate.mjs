@@ -38,6 +38,14 @@ const gh = (args) => {
   return r.stdout;
 };
 
+// Same call, but a failure is reported instead of thrown. Used only AFTER a merge has already
+// landed: at that point throwing would fail the run and skip every remaining pull request over
+// something that is bookkeeping, not safety.
+const ghSoft = (args) => {
+  const r = spawnSync('gh', args, { encoding: 'utf8', shell: process.platform === 'win32' });
+  return { ok: r.status === 0, out: (r.stderr || r.stdout || '').trim().split('\n')[0] ?? '' };
+};
+
 // ── Policy, read from the repo — never inferred ───────────────────────────────
 // An agent that decides it has earned autonomy is the self-approving loop wearing a different hat.
 // Absent config means level 0: review and label, merge nothing.
@@ -63,6 +71,9 @@ const SURFACE_RE = /^\s*(?:public[- ])?surface:\s*(additive|breaking|none)\b/im;
 const PR_FIELDS = [
   'number', 'title', 'body', 'isDraft', 'headRefName', 'baseRefName', 'labels',
   'mergeable', 'mergeStateStatus', 'reviewDecision', 'statusCheckRollup', 'files', 'author',
+  // Read rather than parsed out of the body: this is the link GitHub itself acts on, so it also
+  // covers an issue attached through the Development sidebar with no keyword in the text.
+  'closingIssuesReferences',
 ].join(',');
 
 // ── Load the pull requests ───────────────────────────────────────────────────
@@ -238,23 +249,61 @@ function evaluate(pr) {
 
 const results = prs.map(evaluate).sort((a, b) => a.pr.number - b.pr.number);
 
+// ── Close what the merge was supposed to close ───────────────────────────────
+// GitHub auto-closes a linked issue AS THE MERGING ACTOR. `agent-merge.yml` merges with
+// `GITHUB_TOKEN`, so without `issues: write` that close is silently dropped: the pull request
+// closes, the issue stays open, and the board never drains.
+//
+// Observed on networthy over eight days, matched pairs differing only in who merged — every merge
+// by a user token closed its issue on the merge timestamp; every `github-actions[bot]` merge left
+// it open (#180 → #150 never closed at all; #177 → #172 and #171 → #149 were closed by hand hours
+// later). An unattended loop then re-reads a board still advertising work that is already merged.
+//
+// The permission is granted now, but relying on the implicit behaviour is exactly what failed
+// quietly for a week — so close them here, where the run log says whether it happened.
+const linkedIssues = (pr) =>
+  (pr.closingIssuesReferences ?? []).map((i) => i?.number).filter((n) => Number.isInteger(n));
+
+function closeLinkedIssues(pr) {
+  for (const n of linkedIssues(pr)) {
+    const { ok, out } = ghSoft(['issue', 'close', String(n), '--reason', 'completed',
+      '--comment', `Closed by #${pr.number}.`]);
+    // An issue already closed — by the implicit behaviour, or by a human ahead of the tick — is
+    // the goal state, not a failure. Report either way; never let bookkeeping stop the loop.
+    console.log(ok ? `         closed #${n}` : `         WARN could not close #${n}: ${out}`);
+  }
+}
+
 // ── Report, then act ─────────────────────────────────────────────────────────
 console.log(`autonomy level ${LEVEL} · ${results.length} open PR(s) · cap ${MAX_MERGES}/run\n`);
 
 let merged = 0;
 for (const { pr, fail, changeClass } of results) {
+  // Printed for every pull request, on the dry run too, so "this will close nothing" is visible
+  // BEFORE the merge rather than inferred from a board that stopped draining. Deliberately not a
+  // gate: a `chore/` PR with no issue behind it is legitimate, and a gate that blocks on the
+  // absence of a link would stall the queue on exactly the PRs nobody filed an issue for.
+  const closes = linkedIssues(pr);
+  const closesNote = closes.length
+    ? `closes ${closes.map((n) => `#${n}`).join(', ')}`
+    : 'closes nothing — no issue is linked to this pull request';
+
   if (fail.length === 0) {
     if (!DO_MERGE) {
       console.log(`  READY  #${pr.number} ${pr.title} [${changeClass}]`);
+      console.log(`         ${closesNote}`);
     } else if (merged >= MAX_MERGES) {
       console.log(`  HELD   #${pr.number} — under_cap: ${MAX_MERGES} already merged this run`);
     } else {
       gh(['pr', 'merge', String(pr.number), '--squash', '--delete-branch']);
       merged++;
       console.log(`  MERGED #${pr.number} ${pr.title} [${changeClass}]`);
+      console.log(`         ${closesNote}`);
+      closeLinkedIssues(pr);
     }
   } else {
     console.log(`  BLOCK  #${pr.number} ${pr.title} [${changeClass}]`);
+    console.log(`         ${closesNote}`);
     for (const f of fail) console.log(`         - ${f}`);
   }
 }
