@@ -74,6 +74,30 @@ X-Dev-Subject: {{subject}}
 X-Dev-Tenant: {{tenant}}
 X-Dev-Roles: {{roles}}
 
+### ─────────────────────── Assistant feedback (thumbs up/down) ───────────────────────
+
+### Rate a response. conversationId comes from the list above; messageId is the "messageId"
+### field on the TEXT_MESSAGE_START event of the turn being rated. Rating your own conversation
+### only — a foreign conversationId answers 403. Re-posting the same messageId UPDATES the verdict.
+POST {{base}}/api/legal/assistant/feedback
+Content-Type: application/json
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+{
+  "conversationId": "00000000-0000-0000-0000-000000000000",
+  "messageId": "msg_0000000000000000000000000000000",
+  "helpful": false,
+  "comment": "Missed the deadline I asked about."
+}
+
+### Firm-wide helpfulness — needs legal.matters.view. score is 1-5, or null before anything is rated.
+GET {{base}}/api/legal/assistant/feedback/summary
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
 ### ─────────────────────────── Approvals (human in the loop) ───────────────────────────
 
 ### Pending approvals — needs chat.approvals.manage
