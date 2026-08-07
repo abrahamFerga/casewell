@@ -32,6 +32,10 @@ const ONE_PR = value('--pr');
 const FIXTURE = value('--fixture');
 const RUNS_FIXTURE = value('--runs-fixture');
 
+// Fixture data describes pull requests that do not exist. Nothing driven by it may reach the
+// network — so `--fixture` degrades `--merge` to a simulation rather than being ignored by it.
+const SIMULATE = Boolean(FIXTURE);
+
 const gh = (args) => {
   const r = spawnSync('gh', args, { encoding: 'utf8', shell: process.platform === 'win32' });
   if (r.status !== 0) throw new Error(`gh ${args.join(' ')} failed:\n${r.stderr || r.stdout}`);
@@ -112,7 +116,14 @@ function brokenWorkflows(runs) {
 
 let mainGreen = true;
 let mainWhy = '';
-if (!FIXTURE || RUNS_FIXTURE) {
+
+// A function rather than a one-shot block: a merge earlier in this same run puts a new commit on
+// the base, so this has to be answerable again rather than answered once. See the re-check in the
+// merge loop below.
+function refreshMainGreen() {
+  mainGreen = true;
+  mainWhy = '';
+  if (FIXTURE && !RUNS_FIXTURE) return;
   const base = prs[0]?.baseRefName ?? JSON.parse(gh(['repo', 'view', '--json', 'defaultBranchRef']))
     .defaultBranchRef.name;
   const runs = RUNS_FIXTURE
@@ -125,6 +136,8 @@ if (!FIXTURE || RUNS_FIXTURE) {
     mainWhy = `on ${base}: ${broken.map((r) => `${r.name} concluded "${r.conclusion}"`).join(', ')}`;
   }
 }
+
+refreshMainGreen();
 
 // ── Gates ────────────────────────────────────────────────────────────────────
 function evaluate(pr) {
@@ -295,6 +308,40 @@ for (const { pr, fail, changeClass } of results) {
     } else if (merged >= MAX_MERGES) {
       console.log(`  HELD   #${pr.number} — under_cap: ${MAX_MERGES} already merged this run`);
     } else {
+      // ── Re-read the world before the SECOND merge of a run ──────────────────
+      // Gates were evaluated once, up front, for every pull request. `mergeable`, `checks_green`
+      // and `main_is_green` are assertions about the world RIGHT NOW — that is exactly why they
+      // live here rather than in `pr-gates.mjs` — so the moment one merge lands, all three are
+      // stale for everything still queued: the base moved, and this PR's checks ran against a
+      // commit that is no longer the tip.
+      //
+      // `/plenipo:ship` documents this script as re-evaluating "every gate before touching
+      // anything". That was true PER RUN and false WITHIN one, so with `maxMergesPerTick >= 2`
+      // the second merge landed on a verdict nothing re-checked. In practice the re-check usually
+      // reports `mergeStateStatus=BEHIND` and holds the PR for the next tick, which is the
+      // correct answer: its checks have not run against the base it would land on.
+      if (merged > 0) {
+        console.log(`  RECHECK #${pr.number} — an earlier merge moved the base; re-reading it`);
+        if (!SIMULATE) {
+          refreshMainGreen();
+          const fresh = evaluate(JSON.parse(gh(['pr', 'view', String(pr.number), '--json', PR_FIELDS])));
+          if (fresh.fail.length) {
+            console.log(`  BLOCK  #${pr.number} ${pr.title} [${changeClass}] — stale verdict, re-checked`);
+            for (const f of fresh.fail) console.log(`         - ${f}`);
+            continue;
+          }
+        }
+      }
+
+      // Fixture runs never touch the network — otherwise `--fixture x.json --merge` would try to
+      // squash-merge pull requests numbered 901-907 in whatever repo it happened to be run from.
+      if (SIMULATE) {
+        merged++;
+        console.log(`  WOULD MERGE #${pr.number} ${pr.title} [${changeClass}]`);
+        console.log(`         ${closesNote}`);
+        continue;
+      }
+
       gh(['pr', 'merge', String(pr.number), '--squash', '--delete-branch']);
       merged++;
       console.log(`  MERGED #${pr.number} ${pr.title} [${changeClass}]`);
