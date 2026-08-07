@@ -16,6 +16,8 @@
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const gate = join(here, 'merge-gate.mjs');
@@ -95,8 +97,53 @@ for (const [number, mustMatch, why] of closeCases) {
   }
 }
 
+// ── The second merge of a run must not act on a first-merge verdict ───────────
+// Gates are evaluated once, up front. `mergeable`, `checks_green` and `main_is_green` are all
+// assertions about the world RIGHT NOW, so the moment one merge lands they are stale for every
+// pull request still queued — the base moved and their checks ran against a commit that is no
+// longer the tip. `/plenipo:ship` documents this script as re-evaluating every gate "before
+// touching anything"; that was true per run and false within one.
+//
+// Runs the merge path against fixtures, which `SIMULATE` keeps off the network entirely.
+//
+// From a scratch directory carrying its own `workflow.json`: the gate reads autonomy from the CWD,
+// and this repo's assets folder has none, so every fixture PR would be blocked by `level_permits`
+// and the merge path would never be reached. The assertion would then pass by never running.
+const sandbox = mkdtempSync(join(tmpdir(), 'merge-gate-'));
+writeFileSync(
+  join(sandbox, 'workflow.json'),
+  JSON.stringify({ autonomy: { level: 3, maxMergesPerTick: 2 } })
+);
+const mergeRun = spawnSync(process.execPath, [gate, '--fixture', fixture, '--merge'], { encoding: 'utf8', cwd: sandbox });
+if (mergeRun.status !== 0) {
+  console.error(`merge-gate --merge exited ${mergeRun.status}\n${mergeRun.stderr || mergeRun.stdout}`);
+  process.exit(1);
+}
+
+// Nothing may reach the network from fixture data — a real `gh pr merge` here would squash
+// whatever pull request happens to carry that number in the repo the test ran from.
+if (/^\s{2}MERGED /m.test(mergeRun.stdout)) {
+  console.log('  FAIL --merge — fixture run reported a REAL merge; it must simulate, never call gh');
+  failed++;
+} else {
+  console.log('  ok   --merge — fixture data never reaches the network');
+}
+
+const wouldMerge = (mergeRun.stdout.match(/^\s{2}WOULD MERGE #(\d+)/gm) ?? []);
+const rechecks = (mergeRun.stdout.match(/^\s{2}RECHECK #(\d+)/gm) ?? []);
+
+if (wouldMerge.length < 2) {
+  console.log(`  FAIL --merge — fixture must offer at least two mergeable PRs to exercise this; got ${wouldMerge.length}`);
+  failed++;
+} else if (rechecks.length === wouldMerge.length - 1) {
+  console.log(`  ok   --merge — every merge after the first re-reads the world (${rechecks.length} re-check(s) for ${wouldMerge.length} merges)`);
+} else {
+  console.log(`  FAIL --merge — expected ${wouldMerge.length - 1} re-check(s) after the first merge, got ${rechecks.length}.\n       A second merge on a first-merge verdict is the bug this asserts.\n${mergeRun.stdout}`);
+  failed++;
+}
+
 if (failed) {
   console.log(`\n${failed} rollup case(s) wrong. merge-gate is the last automated thing before main — do not merge this.\n`);
   process.exit(1);
 }
-console.log(`\nOK — ${cases.length} rollup and ${closeCases.length} linked-issue case(s) behave correctly.\n`);
+console.log(`\nOK — ${cases.length} rollup, ${closeCases.length} linked-issue and 2 merge-path case(s) behave correctly.\n`);
