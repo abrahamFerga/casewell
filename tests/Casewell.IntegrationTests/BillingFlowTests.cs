@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Cortex.Core.Identity;
@@ -395,6 +396,132 @@ public sealed class BillingFlowTests(IntegrationFixture fixture)
         Assert.Contains(expenses.EnumerateArray(), e =>
             e.GetProperty("description").GetString() == "Courier to the court" &&
             e.GetProperty("billed").GetString() == "billed");   // the draft swept it up
+    }
+
+    [Fact]
+    public async Task An_invoice_approval_is_gated_and_the_gate_lands_in_the_append_only_audit()
+    {
+        // AC3's second half, and the only place any of it can be proven. The module writes no audit
+        // of its own: the tool-call audit belongs to the platform and is written by the invocation
+        // middleware. AuthorizedScopeAsync bypasses that middleware by design (see its remarks), so
+        // no scope-based test can establish this — the approval has to travel over HTTP.
+        //
+        // What this proves: approve_invoice is gated, and the interception is audited under its own
+        // permission string. What it deliberately does NOT prove: that a SUCCESSFUL approval is
+        // audited. The Mock provider fills a tool's arguments by naive name matching and hands the
+        // whole user message to the single string parameter, so the released call always refuses
+        // with a bad invoice number — the same limitation this class's remarks already record.
+        // Proving the success path needs a provider that can fill an argument; see TODO(plenipo#140).
+        var matterId = await SeedMatterAsync("Audited Approval Co - Matter");
+
+        // Someone else drafts it, so the admin who approves is a lawful approver.
+        var (preparerScope, tenantId, _) = await fixture.AuthorizedScopeAsync(
+            subject: "audited-approval-preparer", displayName: "Drafting Associate");
+        using var _preparer = preparerScope;
+        var preparerBilling = preparerScope.ServiceProvider.GetRequiredService<BillingTools>();
+        var db = preparerScope.ServiceProvider.GetRequiredService<LegalDbContext>();
+
+        db.TimeEntries.Add(new TimeEntry
+        {
+            TenantId = tenantId, MatterId = matterId, Hours = 2m, Description = "Associate work",
+            WorkedOn = DateOnly.FromDateTime(DateTime.UtcNow), Billable = true,
+        });
+        await db.SaveChangesAsync();
+        await preparerBilling.DraftInvoice("Audited Approval Co - Matter", hourlyRate: 300);
+        var number = (await db.Invoices.Where(i => i.MatterId == matterId).SingleAsync()).Number;
+
+        using var client = fixture.AdminClient();
+
+        // Before: however many approvals earlier tests logged, this one is not among them.
+        var before = await ApprovalAuditAsync(client);
+
+        var response = await client.PostAsJsonAsync("/api/agui/legal", new
+        {
+            messages = new[]
+            {
+                new { id = "m1", role = "user", content = $"Approve invoice {number}" },
+            },
+        });
+        response.EnsureSuccessStatusCode();
+
+        // The gate intercepts it — approving a bill is never self-service.
+        var pending = await client.GetFromJsonAsync<JsonElement>("/api/chat/approvals");
+        var call = pending.EnumerateArray()
+            .Single(a => a.GetProperty("toolName").GetString() == "approve_invoice");
+
+        // The refusal is itself on the record — the audit gains a FAILED call carrying the reason,
+        // and no successful one. "Someone tried to approve a bill and was held" is exactly what a
+        // bar audit needs to see, so this row is evidence, not noise.
+        var atInterception = await ApprovalAuditAsync(client);
+        Assert.Equal(before.Succeeded, atInterception.Succeeded);
+        Assert.Equal(before.Blocked + 1, atInterception.Blocked);
+
+        var released = await client.PostAsJsonAsync(
+            $"/api/chat/approvals/{call.GetProperty("id").GetGuid()}/approve", new { });
+        released.EnsureSuccessStatusCode();
+        var outcome = await released.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("Executed", outcome.GetProperty("status").GetString());
+
+        // The release really did run the tool — and the tool refused, because the Mock provider set
+        // invoiceNumber to the entire sentence rather than to the number inside it. Asserted rather
+        // than glossed over: it is why the success path is unproven here, and it goes red the day a
+        // provider fills the argument properly, which is the cue to strengthen this test.
+        Assert.Contains("No invoice numbered", outcome.GetProperty("result").GetString()!);
+
+        // A refused approval leaves the bill exactly where it was. The domain record of WHO
+        // approved an invoice — the half of AC3 a bar audit actually reads — is the invoice's own
+        // ApprovedByUserId/ApprovedAt, proven on the success path by the separation-of-duties tests
+        // above; this test owns the platform half.
+        var invoice = await db.Invoices.Where(i => i.Number == number).SingleAsync();
+        await db.Entry(invoice).ReloadAsync();
+        Assert.Equal(InvoiceStatus.Draft, invoice.Status);
+        Assert.Null(invoice.ApprovedByUserId);
+
+        // The release adds NOTHING to the tool-call audit, and that is the platform's design rather
+        // than a hole. A gated call is recorded on the approvals queue — which carries who released
+        // it and what came back — while the tool-call audit carries ungated executions; the
+        // disclosure feed below is the union of the two, and it filters the blocked row out so a
+        // single decision is not counted twice. Polled for 3s to make this a settled fact and not a
+        // race. Asserted so the day releases DO start landing in the tool-call audit, this goes red
+        // and whoever changes it has to decide what the disclosure feed should now show.
+        for (var i = 0; i < 10; i++)
+        {
+            if ((await ApprovalAuditAsync(client)).Succeeded > before.Succeeded) break;
+            await Task.Delay(300);
+        }
+        var afterRelease = await ApprovalAuditAsync(client);
+        Assert.Equal(before.Succeeded, afterRelease.Succeeded);
+
+        // Append-only holds for what IS recorded: the block was not rewritten or retracted.
+        Assert.Equal(atInterception.Blocked, afterRelease.Blocked);
+
+        // Where AC3's "audit-logged" is discharged for a RELEASED approval is therefore the domain
+        // record — Invoice.ApprovedByUserId/ApprovedAt, asserted on the success path by
+        // A_different_user_can_approve_and_the_approval_is_recorded_then_sendable — plus the gate
+        // row above. Platform main also unions both into a client-facing feed at
+        // /api/platform/ai-decisions, but this product's pinned Cortex 0.1.0-alpha.14 answers 404
+        // for it (asserted, so it stops being a 404 the moment issue #40's upgrade lands and
+        // somebody has to come back and assert the feed instead).
+        var decisions = await client.GetAsync("/api/platform/ai-decisions");
+        Assert.Equal(HttpStatusCode.NotFound, decisions.StatusCode);
+    }
+
+    /// <summary>
+    /// The <c>approve_invoice</c> calls the append-only audit holds, split by outcome. Counted
+    /// rather than asserted-absent because the whole collection shares one database, so an earlier
+    /// test's approval is a legitimate row — it is the <i>delta</i> across each step that is the
+    /// claim. Split by outcome because the two move independently: the gate writes a blocked row at
+    /// interception, and — see TODO(plenipo#140) — writes nothing at all when the call is released.
+    /// </summary>
+    private static async Task<(int Succeeded, int Blocked)> ApprovalAuditAsync(HttpClient client)
+    {
+        var audit = await client.GetFromJsonAsync<JsonElement>("/api/admin/audit/tool-calls");
+        var calls = audit.EnumerateArray().Where(a =>
+            a.GetProperty("toolName").GetString() == "approve_invoice" &&
+            a.GetProperty("permission").GetString() == "tools.legal.approve_invoice").ToList();
+
+        return (calls.Count(a => a.GetProperty("success").GetBoolean()),
+                calls.Count(a => !a.GetProperty("success").GetBoolean()));
     }
 
     private async Task<Guid> SeedMatterAsync(string name)
