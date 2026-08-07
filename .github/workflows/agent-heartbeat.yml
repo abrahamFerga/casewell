@@ -1,0 +1,53 @@
+# The deadman switch. Deterministic — no AI, no secrets, no third-party actions.
+#
+# Every other workflow here answers "may this merge?". This one answers "is anything happening at
+# all?", which is the question none of them can: a loop that has stopped producing looks exactly
+# like a loop with nothing to do, and both report green.
+#
+# Written from two real outages that no gate caught. Thirty-two runs sat queued across five repos
+# for two hours because no runner picked them up — nothing failed, so nothing went red. And the
+# reviewer that applies `agent:approved` died on an `HTTP 403` from its model provider, which
+# silently turned the whole merge queue into a no-op while the merger's own runs stayed green.
+#
+# Hourly on purpose. It exists to be believed when it fires, so it must not cry wolf: the script is
+# biased toward silence, and it CLOSES its own issue when the loop recovers.
+name: Loop heartbeat
+
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+
+# `issues: write` because the report IS an issue — a workflow that fails silently in the Actions
+# tab is the exact failure mode this file exists to break.
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+  actions: read
+
+concurrency:
+  group: agent-heartbeat
+  cancel-in-progress: false
+
+jobs:
+  heartbeat:
+    name: Is the loop still producing?
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      # Fixture-driven, no network: proves the detectors fire on absence AND stay quiet on an idle
+      # repo. A heartbeat that never fires is indistinguishable from a healthy loop, so this test
+      # is the only thing standing between "we have monitoring" and believing we do.
+      - name: Test the heartbeat
+        run: node .github/scripts/loop-heartbeat.test.mjs
+
+      - name: Assess and report
+        run: node .github/scripts/loop-heartbeat.mjs --report
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
