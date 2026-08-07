@@ -1,7 +1,11 @@
 {
   "name": "casewell",
   "industry": "legal",
-  "stage": "development",
+  "loop": "deliver",
+  "platform": {
+    "version": "0.1.0-alpha.14",
+    "feed": "vendored"
+  },
   "cloud": "azure",
   "connectors": [
     "slack",
@@ -29,15 +33,32 @@
     "project": 7,
     "visibility": "public"
   },
+  "autonomy": {
+    "//": "level: 0 nothing · 1 docs+tests · 2 features on review · 3 unattended. Set by a human, never inferred — an agent deciding it has earned autonomy is the self-approving loop wearing a different hat.",
+
+    "//set-by": "A human said 'change all of them to permit FULL' on 2026-08-05, having been shown that all four fleet products run agent-gates.yml and agent-merge.yml with no required-review rule. Recorded here because that is the fact a future tick needs and the conversation is gone.",
+
+    "//required-check-gap": "`PR gates` is NOT in this repo's required status checks — only `Build & test` is. That is weaker than the sibling products and it should be fixed. It is not fatal today because agent-gates.yml still RUNS pr-gates.mjs, the result lands in the PR's status rollup, and merge-gate.mjs blocks on any red check whether or not GitHub calls it required. So the spine guard still bites; what is missing is GitHub's own enforcement on the merge button. Add `PR gates` to the required contexts.",
+
+    "level": 3,
+    "maxOpenPRs": 3,
+    "maxMergesPerTick": 2,
+    "readyFloor": 3,
+    "maxIssuesPerSweep": 8,
+    "maxNewCapabilities": 5
+  },
   "skills": {
     "self": {
-      "marketplace": "my-skills",
-      "repo": "abrahamFerga/my-skills",
+      "marketplace": "plenipo-agents",
+      "repo": "abrahamFerga/plenipo-agents",
       "plugins": [
-        "workflow-core",
-        "system-definition",
-        "architecture",
-        "development"
+        "plenipo",
+        "harness",
+        "scout",
+        "define",
+        "shape",
+        "deliver",
+        "steward"
       ]
     },
     "external": [

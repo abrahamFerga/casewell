@@ -1,0 +1,29 @@
+# CODEOWNERS is the human-visibility half of the spine policy: it puts a named person on the review
+# of anything touching the guarantees the platform exists to provide. The ENFORCING half is
+# `.github/scripts/pr-gates.mjs`, which fails as a required status check — CODEOWNERS only requests a
+# review, and only blocks if you also turn on "Require review from Code Owners" in branch protection.
+#
+# Keep both. The check is what stops an agent; the ownership is what tells you it happened.
+
+* @abrahamFerga
+
+# The spine — RBAC before the model, approval-first writes, tenant isolation, audit, secrets.
+# Casewell is a thin host over the Cortex platform packages, so its spine is three concrete files
+# rather than the layered directories a self-hosted product would have:
+#   LegalDbContext    — per-entity HasQueryFilter, i.e. tenant isolation
+#   LegalModule       — the manifest: permissions, role baselines
+#   LegalToolSource   — tool declarations, including which writes require approval
+/src/Casewell.Legal/Persistence/     @abrahamFerga
+/src/Casewell.Legal/LegalModule.cs   @abrahamFerga
+/src/Casewell.Legal/LegalToolSource.cs @abrahamFerga
+
+# Kept for when the host grows its own layers — these match nothing today, and should start
+# matching the day someone adds them rather than the day someone remembers to update this file.
+/src/**/Authorization/     @abrahamFerga
+/src/**/Approvals/         @abrahamFerga
+
+# The harness itself. An agent that can edit its own gates has no gates.
+/.github/                  @abrahamFerga
+/CODEOWNERS                @abrahamFerga
+/nuget.config              @abrahamFerga
+/workflow.json             @abrahamFerga
