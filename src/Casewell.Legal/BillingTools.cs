@@ -279,10 +279,13 @@ public sealed class BillingTools(
         }
 
         db.Invoices.Add(invoice);
-        await db.SaveChangesAsync(cancellationToken);
 
-        // Stamp the sources only after the invoice has an id — an unstamped source would be
-        // double-billed by the next draft.
+        // Stamp the sources in the SAME save as the invoice. The id is already there to stamp with
+        // (EntityBase assigns a v7 GUID at construction, not at insert), so there is no reason to
+        // commit the invoice first — and every reason not to. Two saves means a window where the
+        // invoice is committed and its sources are not, and the bill-once guarantee is precisely
+        // that stamp: the next draft would sweep those hours up again and bill the client twice.
+        // One SaveChangesAsync is one transaction, so the crash leaves nothing rather than half.
         foreach (var entry in time)
         {
             entry.InvoiceId = invoice.Id;

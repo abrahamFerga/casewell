@@ -1,8 +1,11 @@
 using System.Net.Http.Json;
 using System.Text.Json;
+using Cortex.Core.Identity;
+using Cortex.Core.Multitenancy;
 using Cortex.Modules.Legal;
 using Cortex.Modules.Legal.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
@@ -130,6 +133,88 @@ public sealed class BillingFlowTests(IntegrationFixture fixture)
         // The InvoiceId stamp is what makes double-billing impossible even on an overlapping period.
         Assert.Contains("Nothing unbilled", second);
         Assert.Single(await db.Invoices.Where(i => i.MatterId == matterId).ToListAsync());
+    }
+
+    /// <summary>
+    /// Bill-once has to survive a crash, not only the happy path.
+    /// <see cref="A_second_draft_cannot_rebill_time_the_first_already_billed"/> walks the path where
+    /// nothing goes wrong, so it passes whether or not the draft is atomic. This one drives the
+    /// failure: a context whose <b>second</b> save throws, which is exactly the window between
+    /// committing the invoice and stamping the rows it was assembled from. If a draft leaves an
+    /// invoice behind whose sources are still unstamped, the next draft bills those hours again —
+    /// and the firm sends the client the same hour twice.
+    /// <para>
+    /// Note what green means here: once the draft is a single save, the injected failure on save #2
+    /// never fires, so the crash window has been closed rather than survived. Re-introduce the
+    /// second save and this test goes red again, which is the regression it exists to guard.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task A_crash_between_the_invoice_and_its_stamps_cannot_rebill_the_same_hour()
+    {
+        var matterId = await SeedMatterAsync("Atomic Draft Co - Matter");
+        var (scope, tenantId, _) = await fixture.AuthorizedScopeAsync(subject: "atomic-draft-user");
+        using var _scope = scope;
+        var db = scope.ServiceProvider.GetRequiredService<LegalDbContext>();
+
+        db.TimeEntries.Add(new TimeEntry
+        {
+            TenantId = tenantId, MatterId = matterId, Hours = 4m, Description = "Billed exactly once",
+            WorkedOn = DateOnly.FromDateTime(DateTime.UtcNow), Billable = true,
+        });
+        await db.SaveChangesAsync();
+
+        var tenantContext = scope.ServiceProvider.GetRequiredService<ITenantContext>();
+        var currentUser = scope.ServiceProvider.GetRequiredService<ICurrentUser>();
+        var faultyOptions = new DbContextOptionsBuilder<LegalDbContext>(
+                scope.ServiceProvider.GetRequiredService<DbContextOptions<LegalDbContext>>())
+            .AddInterceptors(new FailOnNthSave(2))
+            .Options;
+
+        await using (var faultyDb = new LegalDbContext(faultyOptions, tenantContext))
+        {
+            var crashing = new BillingTools(faultyDb, tenantContext, currentUser);
+            try
+            {
+                await crashing.DraftInvoice("Atomic Draft Co - Matter", hourlyRate: 500);
+            }
+            catch (InvalidOperationException e) when (e.Message.Contains(FailOnNthSave.Marker))
+            {
+                // The injected crash. What matters is not that it threw — it is what it left behind.
+            }
+        }
+
+        // Whatever the crash left, the next draft must not be able to bill that hour a second time.
+        await scope.ServiceProvider.GetRequiredService<BillingTools>()
+            .DraftInvoice("Atomic Draft Co - Matter", hourlyRate: 500);
+
+        db.ChangeTracker.Clear();
+        var entryId = (await db.TimeEntries.SingleAsync(t => t.MatterId == matterId)).Id;
+        var invoiceIds = await db.Invoices.Where(i => i.MatterId == matterId).Select(i => i.Id).ToListAsync();
+        var timesBilled = await db.InvoiceLines
+            .Where(l => invoiceIds.Contains(l.InvoiceId) && l.SourceId == entryId)
+            .CountAsync();
+
+        Assert.True(timesBilled == 1,
+            $"the same hour reached {timesBilled} invoice(s) across {invoiceIds.Count} draft(s) — " +
+            "a draft that commits the invoice before stamping its sources is not atomic, so a " +
+            "partial failure leaves the sources unbilled and the next draft rebills them");
+    }
+
+    /// <summary>Fails the Nth <c>SaveChanges</c> on a context, to stand in for a crash mid-operation.</summary>
+    private sealed class FailOnNthSave(int failOn) : SaveChangesInterceptor
+    {
+        public const string Marker = "injected crash (FailOnNthSave)";
+
+        private int _saves;
+
+        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default) =>
+            Interlocked.Increment(ref _saves) == failOn
+                ? throw new InvalidOperationException($"{Marker}: save #{failOn} never reached the database")
+                : base.SavingChangesAsync(eventData, result, cancellationToken);
     }
 
     // ─────────── AC3: approval blocks self-approval, and approval is recorded ───────────
