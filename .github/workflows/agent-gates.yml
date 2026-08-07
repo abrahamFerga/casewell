@@ -30,6 +30,17 @@ jobs:
 
       # --unified=0 keeps context lines out of the removal scan, so an unchanged HasQueryFilter
       # sitting next to an edit does not read as an edit to it.
+      - name: Test the merge gate
+        run: node --test .github/scripts/merge-gate.test.mjs
+
+      - name: Test the loop heartbeat
+        run: |
+          if [ -f .github/scripts/loop-heartbeat.test.mjs ]; then
+            node --test .github/scripts/loop-heartbeat.test.mjs
+          else
+            echo "no loop-heartbeat.test.mjs — skipping"
+          fi
+
       - name: Compute the diff
         run: |
           git fetch --no-tags origin "${{ github.base_ref }}"
