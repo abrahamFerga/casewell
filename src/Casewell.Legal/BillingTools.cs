@@ -15,7 +15,17 @@ namespace Cortex.Modules.Legal;
 /// Two rules carry the compliance weight. <b>Separation of duties:</b> the user who drafted an
 /// invoice can never approve it, because an attorney approving their own bill is the control every
 /// firm's engagement letter promises the client. <b>Bill once:</b> a draft stamps its InvoiceId on
-/// every line's source row, so the same hour cannot reach a second invoice.
+/// every line's source row, so a later draft skips them however the periods overlap, and the
+/// invoice and its stamps commit in one save, so a crash cannot leave billed hours looking unbilled.
+/// </para>
+/// <para>
+/// <b>Bill-once is not yet safe under CONCURRENT drafts</b> — see issue #58. The sweep reads
+/// <c>InvoiceId == null</c> rows and stamps them, with no concurrency token and no guarded
+/// <c>WHERE InvoiceId IS NULL</c> update, so two drafts racing on one matter can both bill the same
+/// hour. The unique index on <c>(TenantId, Number)</c> catches only the interleaving where both
+/// compute the same invoice number; if the first commits between the second's time-entry read and
+/// its number read, the second gets a fresh number and the collision never happens. Serialized
+/// drafting — one user, one approval-gated call at a time — is the case that holds today.
 /// </para>
 /// <para>
 /// Timer writes are NOT approval-gated, matching <c>log_time</c>: capture friction is why lawyers
@@ -224,8 +234,9 @@ public sealed class BillingTools(
             return $"'{toDate}' is not a date I can parse — use an ISO date like 2026-07-31, or omit it for today.";
         }
 
-        // Unbilled only: InvoiceId is the "already billed" stamp, so the same hour can never reach
-        // a second invoice even if the period overlaps a previous draft.
+        // Unbilled only: InvoiceId is the "already billed" stamp, so an hour a previous draft
+        // already took is skipped however far the periods overlap. This is a read, and nothing
+        // holds it against a concurrent draft — see the class remarks and issue #58.
         var time = await db.TimeEntries
             .Where(t => t.MatterId == matter.Id && t.InvoiceId == null && t.Billable
                         && (from == null || t.WorkedOn >= from) && t.WorkedOn <= to)
