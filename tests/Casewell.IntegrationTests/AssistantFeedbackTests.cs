@@ -116,6 +116,47 @@ public sealed class AssistantFeedbackTests(IntegrationFixture fixture)
         Assert.Equal(before.Total, after.Total);
     }
 
+    // Every test above runs as system_admin, whose wildcard grant makes both routes reachable no
+    // matter which policy they carry. These two are the only thing that would notice if `chat.use`
+    // (a hand-written literal) were misspelled, or the wrong policy attached to either route —
+    // failures that leave CI green while paralegals are silently locked out of the whole feature.
+    [Fact]
+    public async Task A_paralegal_can_rate_a_response_and_read_the_helpfulness_summary()
+    {
+        using var paralegal = fixture.AdminClient(roles: "paralegal", subject: "rating-paralegal");
+
+        var turn = await StreamTurnAsync(paralegal, "List my matters");
+        var conversationId = await LatestConversationIdAsync(paralegal);
+
+        var posted = await paralegal.PostAsJsonAsync("/api/legal/assistant/feedback", new
+        {
+            conversationId, messageId = turn.MessageId, helpful = true,
+        });
+        Assert.Equal(HttpStatusCode.OK, posted.StatusCode);
+
+        var summary = await paralegal.GetAsync("/api/legal/assistant/feedback/summary");
+        Assert.Equal(HttpStatusCode.OK, summary.StatusCode);
+    }
+
+    [Fact]
+    public async Task A_role_holding_neither_permission_is_refused_on_both_routes()
+    {
+        using var guest = fixture.AdminClient(roles: "guest", subject: "unpermitted-reader");
+
+        var posted = await guest.PostAsJsonAsync("/api/legal/assistant/feedback", new
+        {
+            conversationId = Guid.NewGuid(), messageId = "msg_whatever", helpful = true,
+        });
+        var summary = await guest.GetAsync("/api/legal/assistant/feedback/summary");
+
+        Assert.True(
+            posted.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized,
+            $"guest reached the rating endpoint: {(int)posted.StatusCode}");
+        Assert.True(
+            summary.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized,
+            $"guest read the helpfulness summary: {(int)summary.StatusCode}");
+    }
+
     private static async Task<(int Total, int Helpful, int Unhelpful)> TotalsAsync(HttpClient client)
     {
         var summary = await client.GetFromJsonAsync<JsonElement>("/api/legal/assistant/feedback/summary");
