@@ -87,7 +87,14 @@ builder.Services.AddCortexTenantProvisionedHook<WelcomeEmailHook>();
 
 var app = builder.Build();
 
-await app.RunCortexPlatformAsync();
+// RunCortexPlatformAsync() expanded into its three documented steps, because this host maps one
+// endpoint of its own. CortexHostSetup exposes UseCortexPlatform "separately from
+// RunCortexPlatformAsync for a host that needs to add its own endpoints" — this is that seam, not
+// a workaround. TODO(casewell#40): collapse back to RunCortexPlatformAsync() when the shim goes.
+app.UseCortexPlatform();
+app.MapCasewellDecisionTrail();
+await app.InitializeCortexAsync();
+await app.RunAsync();
 
 /// <summary>Exposed so integration tests can host this app via WebApplicationFactory&lt;Program&gt;.</summary>
 public partial class Program;
