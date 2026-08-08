@@ -853,6 +853,9 @@ public sealed class LegalModule : IModule
         // tasks, time entries, and the weekly-hours chart rows. RBAC-gated, never approval-gated.
         group.MapManualCrudEndpoints();
 
+        // Thumbs-up/down on assistant responses plus the firm-wide helpfulness readout.
+        group.MapAssistantFeedbackEndpoints();
+
         // The tenant's clause library (seeded from defaults, curated by the firm).
         group.MapGet("/clauses", async (string? query, LegalDbContext db, CancellationToken cancellationToken) =>
             {
