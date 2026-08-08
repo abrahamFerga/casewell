@@ -50,6 +50,11 @@ internal static class DecisionTrailEndpoints
 
                 // Pending rows are excluded on purpose: an action still awaiting a human is not a
                 // decision, it is a queue item, and /api/chat/approvals already serves that.
+                //
+                // Deliberately NOT filtered to ModuleId == "legal" despite the /api/legal route:
+                // Casewell is a single-module product, so every row IS a legal row, and filtering
+                // would silently hide decisions if a second module ever landed. If one does, decide
+                // then whether to scope this or move it to the platform's /api/platform route.
                 var decided = await db.PendingApprovals
                     .Where(p => p.Status != ApprovalStatus.Pending)
                     .OrderByDescending(p => p.ResolvedAt ?? p.CreatedAt)

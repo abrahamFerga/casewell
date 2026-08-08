@@ -92,9 +92,10 @@ public sealed class DecisionTrailTests(IntegrationFixture fixture)
 
         var response = await narrow.GetAsync("/api/legal/ai-decisions");
 
-        Assert.True(
-            response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized,
-            $"a paralegal read the firm's decision trail: {(int)response.StatusCode}");
+        // Pinned to Forbidden alone, not Forbidden-or-Unauthorized. The looser form would also
+        // pass if the caller were merely unauthenticated, which proves nothing about the
+        // permission; this client IS authenticated and is refused on the grant it lacks.
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
     private static async Task<Guid> ApproveAsync(HttpClient client, string toolName)
