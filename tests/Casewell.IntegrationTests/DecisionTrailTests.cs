@@ -43,9 +43,20 @@ public sealed class DecisionTrailTests(IntegrationFixture fixture)
             .ToList();
 
         Assert.NotEmpty(rows);
-        Assert.All(rows, r => Assert.False(
-            r.GetProperty("error").ValueKind == JsonValueKind.Null,
-            "a gated execution appeared in the tool-call audit — the platform contract changed"));
+        Assert.All(rows, r =>
+        {
+            // TryGetProperty, not GetProperty: if the audit DTO ever stops serializing its null
+            // errors, GetProperty throws KeyNotFoundException and this test dies with a JSON
+            // plumbing error instead of printing the contract message it exists to print. An
+            // ABSENT "error" asserts exactly what a null one does — the execution succeeded — so
+            // it must fail the same way and say the same thing, not crash.
+            var blocked = r.TryGetProperty("error", out var error)
+                && error.ValueKind != JsonValueKind.Null;
+
+            Assert.True(
+                blocked,
+                "a gated execution appeared in the tool-call audit — the platform contract changed");
+        });
 
         Assert.NotEqual(Guid.Empty, id);
     }
