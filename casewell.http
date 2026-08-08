@@ -109,11 +109,46 @@ X-Dev-Subject: {{subject}}
 X-Dev-Tenant: {{tenant}}
 X-Dev-Roles: {{roles}}
 
-### Append-only tool-call audit — every invocation, with its permission and outcome
+### Append-only tool-call audit — every invocation, with its permission and outcome.
+### An APPROVED gated call is deliberately absent here — it never passes through
+### ToolInvocationMiddleware — so pair this with the decision trail below or you will read a
+### completed trust movement as an unaudited one. Only the BLOCKED attempt shows up here.
 GET {{base}}/api/admin/audit/tool-calls
 X-Dev-Subject: {{subject}}
 X-Dev-Tenant: {{tenant}}
 X-Dev-Roles: {{roles}}
+
+### The gated-decision trail — resolved approvals (Executed / Rejected / Failed) with their
+### outcome. This is the other half of "what did the agent actually do": the tool-call audit above
+### holds ungated calls, this holds the gated ones a human decided on. Still-pending items are not
+### decisions and are served by GET /api/chat/approvals instead.
+###
+### Lives in the Admin section rather than with the Legal module below despite its /api/legal
+### route: it is gated on platform.audit.view, the same grant as the tool-call audit, and this is
+### where a reader looking for the audit surface will look.
+###
+### TODO(casewell#40): a local shim. The platform serves /api/platform/ai-decisions from the
+### version after the pinned alpha.14; when casewell#40 lands, delete this and repoint here.
+GET {{base}}/api/legal/ai-decisions
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### The same trail past the default window. take defaults to 100 and is clamped to 1..500, so this
+### is the widest page the endpoint will serve. Newest-resolved first.
+GET {{base}}/api/legal/ai-decisions?take=500
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### RBAC negative check on the trail — paralegal is a REAL seeded role that holds no
+### platform.audit.view, not a synthetic one. Expect 403, not 401: this caller is authenticated
+### and is refused on the grant it lacks. A 401 here means dev-auth is misconfigured, not that the
+### gate works.
+GET {{base}}/api/legal/ai-decisions
+X-Dev-Subject: para-trail
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: paralegal
 
 ### Roles
 GET {{base}}/api/admin/roles
