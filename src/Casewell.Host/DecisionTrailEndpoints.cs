@@ -6,7 +6,10 @@ using Microsoft.EntityFrameworkCore;
 namespace Casewell.Host;
 
 /// <summary>
-/// TODO(plenipo#40): DELETE THIS FILE when Casewell moves off <c>Cortex 0.1.0-alpha.14</c>.
+/// TODO(casewell#40): DELETE THIS FILE when Casewell moves off <c>Cortex 0.1.0-alpha.14</c>.
+/// The tracker is casewell#40 ("Upgrade off the pre-rename Cortex.* packages onto Plenipo.*"),
+/// NOT plenipo#40 — the platform issue of that number is an unrelated, already-merged npm
+/// publish, so a literal reading of the old tag said "safe to delete" while the pin still stands.
 ///
 /// A local shim for the gated-decision trail (#62). The platform already owns this surface —
 /// <c>DisclosureEndpoints</c> serves <c>/api/platform/ai-decisions</c> and unions resolved

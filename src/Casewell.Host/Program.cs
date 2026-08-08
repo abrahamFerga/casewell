@@ -90,7 +90,7 @@ var app = builder.Build();
 // RunCortexPlatformAsync() expanded into its three documented steps, because this host maps one
 // endpoint of its own. CortexHostSetup exposes UseCortexPlatform "separately from
 // RunCortexPlatformAsync for a host that needs to add its own endpoints" — this is that seam, not
-// a workaround. TODO(plenipo#40): collapse back to RunCortexPlatformAsync() when the shim goes.
+// a workaround. TODO(casewell#40): collapse back to RunCortexPlatformAsync() when the shim goes.
 app.UseCortexPlatform();
 app.MapCasewellDecisionTrail();
 await app.InitializeCortexAsync();
