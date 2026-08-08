@@ -70,10 +70,11 @@ public sealed class AssistantFeedbackTests(IntegrationFixture fixture)
         Assert.Equal(before.Helpful, after.Helpful);
         Assert.Equal(before.Unhelpful + 1, after.Unhelpful);
 
+        // The complaint text is stored but deliberately NOT readable here — the summary is counts
+        // only, because this permission is not matter-scoped and the text can name a walled matter.
         var summary = await client.GetFromJsonAsync<JsonElement>("/api/legal/assistant/feedback/summary");
-        Assert.Contains(
-            summary.GetProperty("recentComplaints").EnumerateArray().Select(c => c.GetString()),
-            c => c == "Missed the deadline I asked about.");
+        Assert.False(summary.TryGetProperty("recentComplaints", out _));
+        Assert.DoesNotContain("Missed the deadline", summary.GetRawText(), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -108,7 +109,9 @@ public sealed class AssistantFeedbackTests(IntegrationFixture fixture)
             conversationId, messageId = turn.MessageId, helpful = false,
         });
 
-        Assert.False(response.IsSuccessStatusCode);
+        // Forbidden specifically: a 404 or a 500 would also be "not successful", and either would
+        // mean the ownership check was never the thing that stopped this.
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         var after = await TotalsAsync(stranger);
         Assert.Equal(before.Total, after.Total);
     }

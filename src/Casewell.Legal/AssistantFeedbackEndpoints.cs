@@ -27,6 +27,16 @@ namespace Cortex.Modules.Legal;
 /// a conversation belongs to one user, so nobody can rate — or skew the metric through — someone
 /// else's thread.
 /// </para>
+/// <para>
+/// <b>The summary returns counts, never the complaint text, and that is load-bearing.</b> A thumbs-down
+/// comment is 2,000 characters of attorney free text about a conversation that may concern a walled
+/// matter — the first draft of this endpoint returned the 20 most recent firm-wide to every holder
+/// of <c>legal.matters.view</c> (which <c>paralegal</c> holds), with no author scope, no matter scope
+/// and no <see cref="Matter.WallAllows"/> call, making it the module's only unfiltered read. It was
+/// also self-demonstrating: the complaint it echoed named a matter. The text is still persisted, so
+/// no signal is lost — surfacing it needs a matter-scoped, wall-filtered surface, which is #67.
+/// Do not re-add it here.
+/// </para>
 /// </remarks>
 internal static class AssistantFeedbackEndpoints
 {
@@ -66,6 +76,11 @@ internal static class AssistantFeedbackEndpoints
                     return Results.Forbid();
                 }
 
+                // Keyed on (message, reader) to match the unique index, NOT on the conversation: a
+                // caller may therefore pair a conversation they own with any messageId they like.
+                // That is bounded — one row per reader per message either way, so the metric cannot
+                // be stuffed — but it is not the same as "the message belongs to that conversation",
+                // and the guarantee should not be described as more than it is.
                 var existing = await db.AssistantFeedback.FirstOrDefaultAsync(
                     f => f.MessageId == messageId && f.UserId == currentUser.UserId, cancellationToken);
                 if (existing is null)
@@ -97,17 +112,11 @@ internal static class AssistantFeedbackEndpoints
                 var helpful = await db.AssistantFeedback.CountAsync(f => f.Helpful, cancellationToken);
                 var unhelpful = await db.AssistantFeedback.CountAsync(f => !f.Helpful, cancellationToken);
 
-                // Most recent complaints first — the free text is the actionable half of a thumbs-down.
-                var comments = await db.AssistantFeedback
-                    .Where(f => !f.Helpful && f.Comment != null)
-                    .OrderByDescending(f => f.CreatedAt)
-                    .Take(20)
-                    .Select(f => f.Comment!)
-                    .ToListAsync(cancellationToken);
-
+                // Counts only, deliberately — see the class remarks. The complaint free text is
+                // still stored; it is simply not readable through this permission.
                 return Results.Ok(new AssistantHelpfulnessDto(
                     helpful, unhelpful, helpful + unhelpful,
-                    AssistantHelpfulness.Score(helpful, unhelpful), comments));
+                    AssistantHelpfulness.Score(helpful, unhelpful)));
             })
             .RequireAuthorization(PermissionRequirement.PolicyName(LegalModule.ViewMatters))
             .WithName("Legal_GetAssistantHelpfulness");
@@ -126,4 +135,4 @@ internal sealed record AssistantFeedbackDto(
 
 /// <param name="Score">1–5, or null when nothing has been rated yet.</param>
 internal sealed record AssistantHelpfulnessDto(
-    int Helpful, int Unhelpful, int Total, double? Score, IReadOnlyList<string> RecentComplaints);
+    int Helpful, int Unhelpful, int Total, double? Score);
