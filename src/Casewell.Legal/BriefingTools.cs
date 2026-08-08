@@ -207,28 +207,67 @@ public sealed class BriefingTools(
             .Where(t => t.MatterId == matter.Id && t.WorkedOn >= sinceDay)
             .SumAsync(t => (decimal?)t.Hours, cancellationToken) ?? 0m;
 
+        return StatusLetter.Compose(
+            matter.Name,
+            matter.ClientName,
+            now,
+            [
+                .. recentEvents.Select(e => new LetterMilestone(e.Title, e.CompletedAt!.Value)),
+                .. recentTasks.Select(t => new LetterMilestone(t.Title, t.CompletedAt!.Value)),
+            ],
+            [.. upcoming.Select(e => new LetterMilestone(e.Title, e.StartsAt))],
+            recentHours);
+    }
+
+    private async Task<Matter?> FindAccessibleMatterAsync(string name, CancellationToken cancellationToken)
+    {
+        var normalized = name.Trim();
+        var matter = await db.Matters.FirstOrDefaultAsync(
+            m => EF.Functions.ILike(m.Name, normalized), cancellationToken);
+        return matter is not null && matter.IsAccessibleTo(currentUser.UserId) ? matter : null;
+    }
+}
+
+/// <summary>One completed or upcoming item as the client letter reports it: what, and when.</summary>
+internal readonly record struct LetterMilestone(string Title, DateTimeOffset On);
+
+/// <summary>
+/// The client-facing status letter, composed as a pure function of matter data already queried.
+/// </summary>
+/// <remarks>
+/// Split out of <see cref="BriefingTools"/> so the ABA 5.3 disclosure is assertable at all. A test
+/// over <see cref="BriefingTools.DraftBanner"/> only watches the constant's wording: delete the line
+/// that appends it and every such test still passes while each letter ships with no disclosure. A
+/// test over the letter this returns fails the moment the banner stops being delivered, which is the
+/// property #22 actually requires.
+/// </remarks>
+internal static class StatusLetter
+{
+    public static string Compose(
+        string matterName,
+        string? clientName,
+        DateTimeOffset now,
+        IReadOnlyList<LetterMilestone> completed,
+        IReadOnlyList<LetterMilestone> upcoming,
+        decimal recentHours)
+    {
         // Client-facing on purpose: progress, dates, and effort — no internal notes, assignees,
         // billing rates, or strategy. The letter is a DRAFT the attorney reviews before sending.
         var body = new StringBuilder();
-        body.AppendLine($"Re: {matter.Name}");
+        body.AppendLine($"Re: {matterName}");
         body.AppendLine($"Date: {now:yyyy-MM-dd}");
         body.AppendLine();
-        body.AppendLine($"Dear {matter.ClientName ?? "Client"},");
+        body.AppendLine($"Dear {clientName ?? "Client"},");
         body.AppendLine();
         body.AppendLine("Here is the current status of your matter.");
         body.AppendLine();
 
-        if (recentEvents.Count > 0 || recentTasks.Count > 0)
+        if (completed.Count > 0)
         {
             body.AppendLine("Progress in the last 30 days:");
-            foreach (var e in recentEvents)
+            foreach (var item in completed)
             {
-                body.AppendLine($"  - Completed: {e.Title} ({e.CompletedAt:yyyy-MM-dd})");
-            }
-
-            foreach (var t in recentTasks)
-            {
-                body.AppendLine($"  - Completed: {t.Title} ({t.CompletedAt:yyyy-MM-dd})");
+                body.AppendLine($"  - Completed: {item.Title} ({item.On:yyyy-MM-dd})");
             }
         }
         else
@@ -240,9 +279,9 @@ public sealed class BriefingTools(
         if (upcoming.Count > 0)
         {
             body.AppendLine("Upcoming dates:");
-            foreach (var e in upcoming)
+            foreach (var item in upcoming)
             {
-                body.AppendLine($"  - {e.StartsAt:yyyy-MM-dd}: {e.Title}");
+                body.AppendLine($"  - {item.On:yyyy-MM-dd}: {item.Title}");
             }
         }
         else
@@ -258,16 +297,8 @@ public sealed class BriefingTools(
         body.AppendLine("Sincerely,");
         body.AppendLine("[Attorney name]");
         body.AppendLine();
-        body.AppendLine(DraftBanner);
+        body.AppendLine(BriefingTools.DraftBanner);
 
         return body.ToString();
-    }
-
-    private async Task<Matter?> FindAccessibleMatterAsync(string name, CancellationToken cancellationToken)
-    {
-        var normalized = name.Trim();
-        var matter = await db.Matters.FirstOrDefaultAsync(
-            m => EF.Functions.ILike(m.Name, normalized), cancellationToken);
-        return matter is not null && matter.IsAccessibleTo(currentUser.UserId) ? matter : null;
     }
 }

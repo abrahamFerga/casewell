@@ -98,10 +98,49 @@ public sealed class MatterWallTests
 /// </summary>
 public sealed class AiDraftedBannerTests
 {
+    private static readonly DateTimeOffset Now = new(2026, 8, 8, 9, 0, 0, TimeSpan.Zero);
+
     [Fact]
     public void TheDraftBanner_SaysItIsAiDrafted_NotMerelyThatItIsADraft()
     {
         Assert.Contains("AI-DRAFTED", BriefingTools.DraftBanner, StringComparison.Ordinal);
         Assert.Contains("attorney must review", BriefingTools.DraftBanner, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // The one above watches the constant's WORDING; these watch its DELIVERY. Deleting the append
+    // in StatusLetter.Compose leaves the wording test green and ships undisclosed client letters,
+    // so a test over the composed letter is the only thing standing behind #22's banner criterion.
+    [Fact]
+    public void EveryComposedLetter_CarriesTheDisclosure_EvenWhenTheMatterIsEmpty()
+    {
+        var letter = StatusLetter.Compose("Meridian acquisition", "Meridian Ltd", Now, [], [], 0m);
+
+        Assert.Contains(BriefingTools.DraftBanner, letter, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheDisclosure_IsTheLastThingTheReaderSees()
+    {
+        var letter = StatusLetter.Compose(
+            "Meridian acquisition", "Meridian Ltd", Now,
+            [new LetterMilestone("Filed the response", Now.AddDays(-3))],
+            [new LetterMilestone("Hearing", Now.AddDays(14))],
+            12.5m);
+
+        Assert.EndsWith(BriefingTools.DraftBanner, letter.TrimEnd(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void StrippingTheBanner_IsWhatTurnsADraftIntoTheClientCopy()
+    {
+        // SendStatusUpdate removes the banner because the approval that released the send IS the
+        // review record. That strip must take the disclosure and nothing else with it.
+        var letter = StatusLetter.Compose("Meridian acquisition", "Meridian Ltd", Now, [], [], 4m);
+
+        var clientCopy = letter.Replace(BriefingTools.DraftBanner, "", StringComparison.Ordinal);
+
+        Assert.DoesNotContain("AI-DRAFTED", clientCopy, StringComparison.Ordinal);
+        Assert.Contains("Dear Meridian Ltd,", clientCopy, StringComparison.Ordinal);
+        Assert.Contains("Time devoted to your matter in the last 30 days: 4 hours.", clientCopy, StringComparison.Ordinal);
     }
 }
