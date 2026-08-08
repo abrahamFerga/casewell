@@ -59,7 +59,12 @@ public sealed class DecisionTrailTests(IntegrationFixture fixture)
         await StreamTurnAsync(client, "Record a 3400 retainer deposit into trust on Trail Co - Retainer");
         var id = await ApproveAsync(client, "record_trust_deposit");
 
-        var trail = await client.GetFromJsonAsync<JsonElement>("/api/legal/ai-decisions");
+        // ?take=500 (the endpoint's clamp ceiling) rather than the default 100. This fixes no
+        // live flake: rows come back newest-resolved-first, so the one just approved is at the
+        // head of any window. What it removes is the test's *dependence* on that ordering — with
+        // the default window, changing the OrderByDescending would turn this green-by-luck the
+        // moment the dev tenant carries more than 100 resolved approvals.
+        var trail = await client.GetFromJsonAsync<JsonElement>("/api/legal/ai-decisions?take=500");
 
         var decision = Assert.Single(
             trail.EnumerateArray(),
@@ -79,7 +84,7 @@ public sealed class DecisionTrailTests(IntegrationFixture fixture)
             .EnumerateArray().Select(a => a.GetProperty("id").GetGuid()).ToHashSet();
         Assert.NotEmpty(pendingIds);
 
-        var after = await client.GetFromJsonAsync<JsonElement>("/api/legal/ai-decisions");
+        var after = await client.GetFromJsonAsync<JsonElement>("/api/legal/ai-decisions?take=500");
         Assert.DoesNotContain(after.EnumerateArray(), d => pendingIds.Contains(d.GetProperty("id").GetGuid()));
     }
 
