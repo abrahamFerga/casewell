@@ -114,6 +114,50 @@ public sealed class DecisionTrailTests(IntegrationFixture fixture)
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
+    [Fact]
+    public async Task One_firms_decision_trail_never_contains_another_firms_decisions()
+    {
+        // The invariant this pins is the whole reason a legal product may hold two firms at once:
+        // Firm A's managing partner must not be able to read that Firm B approved a trust deposit.
+        // /api/legal/ai-decisions names no tenant in its WHERE clause — it leans entirely on
+        // PlatformDbContext's global filter over PendingApproval (a TenantEntityBase). Until this
+        // test existed that lean was an L4 source reading, not an observed behaviour: the earlier
+        // cross-tenant probe used an unseeded slug, which RequestEnricher cannot resolve, so it was
+        // refused at RBAC with 403 and the filter was never reached. Both tenants here are real.
+        await fixture.EnsureTenantAsync("isolation-co", "Isolation Co Law");
+
+        using var firmA = fixture.AdminClient(subject: "partner-a");
+        using var firmB = fixture.AdminClient(subject: "partner-b", tenant: "isolation-co");
+
+        await SeedMatterAsync(firmA, "Firm A Holdings - Retainer");
+        await StreamTurnAsync(firmA, "Record a 1500 retainer deposit into trust on Firm A Holdings - Retainer");
+        var firmAId = await ApproveAsync(firmA, "record_trust_deposit");
+
+        await SeedMatterAsync(firmB, "Firm B Ventures - Retainer");
+        await StreamTurnAsync(firmB, "Record a 2600 retainer deposit into trust on Firm B Ventures - Retainer");
+        var firmBId = await ApproveAsync(firmB, "record_trust_deposit");
+
+        Assert.NotEqual(firmAId, firmBId);
+
+        // Asserted in BOTH directions on purpose. A one-way check passes just as happily when the
+        // filter is applied with a hardcoded tenant, or when the second tenant simply has no rows;
+        // requiring each firm to see exactly its own decision and none of the other's is what makes
+        // this a proof of isolation rather than of emptiness.
+        var trailA = await ReadDecisionIdsAsync(firmA);
+        Assert.Contains(firmAId, trailA);
+        Assert.DoesNotContain(firmBId, trailA);
+
+        var trailB = await ReadDecisionIdsAsync(firmB);
+        Assert.Contains(firmBId, trailB);
+        Assert.DoesNotContain(firmAId, trailB);
+    }
+
+    private static async Task<HashSet<Guid>> ReadDecisionIdsAsync(HttpClient client)
+    {
+        var trail = await client.GetFromJsonAsync<JsonElement>("/api/legal/ai-decisions?take=500");
+        return trail.EnumerateArray().Select(d => d.GetProperty("id").GetGuid()).ToHashSet();
+    }
+
     private static async Task<Guid> ApproveAsync(HttpClient client, string toolName)
     {
         var pending = await client.GetFromJsonAsync<JsonElement>("/api/chat/approvals");

@@ -1,5 +1,9 @@
+using Cortex.Core.Platform;
+using Cortex.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Testcontainers.PostgreSql;
 using Xunit;
 
@@ -74,13 +78,78 @@ public sealed class IntegrationFixture : IAsyncLifetime
     /// pipeline, so it is the only way to prove RBAC, the approval gate, and the AG-UI protocol.
     /// Pass a narrower role to assert a 403.
     /// </summary>
-    public HttpClient AdminClient(string roles = "system_admin", string subject = "it-admin")
+    public HttpClient AdminClient(string roles = "system_admin", string subject = "it-admin", string tenant = "dev")
     {
         var client = Factory.CreateClient();
         client.DefaultRequestHeaders.Add("X-Dev-Subject", subject);
-        client.DefaultRequestHeaders.Add("X-Dev-Tenant", "dev");
+        client.DefaultRequestHeaders.Add("X-Dev-Tenant", tenant);
         client.DefaultRequestHeaders.Add("X-Dev-Roles", roles);
         return client;
+    }
+
+    /// <summary>
+    /// Creates a SECOND real tenant, so a test can prove tenant isolation rather than assert it.
+    /// Idempotent.
+    ///
+    /// This exists because a cross-tenant probe that merely invents an <c>X-Dev-Tenant</c> value
+    /// proves nothing: <c>RequestEnricher.ResolveTenantAsync</c> looks the slug up in
+    /// <c>Tenants</c> and returns null when it misses, so the enricher returns before
+    /// <c>SetTenant</c>/<c>SetPermissions</c> and the caller is refused at RBAC with 403 —
+    /// the query filter under test is never reached. Only a tenant that actually exists gets far
+    /// enough to exercise it.
+    ///
+    /// Mirrors <c>DatabaseInitializer.SeedDevTenantAsync</c> at the pinned
+    /// <c>Cortex 0.1.0-alpha.14</c>: insert the tenant, then enable the same modules. Two details
+    /// are load-bearing and both are the platform's, verified against source at that tag.
+    /// (1) <c>IgnoreQueryFilters()</c> on every read — <c>TenantModule</c> is tenant-owned and this
+    /// scope has no ambient tenant, so the default filter would hide existing rows and the
+    /// idempotence check would re-insert on a second call. (2) No <c>RolePermission</c> rows are
+    /// copied: <c>PermissionResolver</c> falls back to the built-in role baseline for a tenant that
+    /// has none, so the new tenant's <c>system_admin</c> resolves identically to the dev tenant's
+    /// without this fixture seeding a single grant of its own.
+    /// </summary>
+    public async Task<Guid> EnsureTenantAsync(string slug, string name)
+    {
+        using var scope = Factory.Services.CreateScope();
+        var platform = scope.ServiceProvider.GetRequiredService<PlatformDbContext>();
+
+        // Tenants are not tenant-owned, so no query filter applies to this read.
+        var tenant = await platform.Tenants.FirstOrDefaultAsync(t => t.Slug == slug);
+        if (tenant is null)
+        {
+            tenant = new Tenant { Name = name, Slug = slug };
+            platform.Tenants.Add(tenant);
+            await platform.SaveChangesAsync();
+        }
+
+        // Copy the dev tenant's enabled module set rather than resolving IModule here, so this
+        // fixture cannot drift from what the host actually installed.
+        var devTenantId = await platform.Tenants
+            .Where(t => t.Slug == "dev")
+            .Select(t => t.Id)
+            .FirstAsync();
+
+        var moduleIds = await platform.TenantModules.IgnoreQueryFilters()
+            .Where(tm => tm.TenantId == devTenantId && tm.IsEnabled)
+            .Select(tm => tm.ModuleId)
+            .ToListAsync();
+
+        foreach (var moduleId in moduleIds)
+        {
+            if (!await platform.TenantModules.IgnoreQueryFilters()
+                    .AnyAsync(tm => tm.TenantId == tenant.Id && tm.ModuleId == moduleId))
+            {
+                platform.TenantModules.Add(new TenantModule
+                {
+                    TenantId = tenant.Id,
+                    ModuleId = moduleId,
+                    IsEnabled = true,
+                });
+            }
+        }
+
+        await platform.SaveChangesAsync();
+        return tenant.Id;
     }
 
     private sealed class CasewellAppFactory : WebApplicationFactory<Program>
