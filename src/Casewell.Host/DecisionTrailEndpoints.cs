@@ -33,9 +33,19 @@ namespace Casewell.Host;
 /// <c>/api/admin/audit/tool-calls</c>. It is the missing SELECT and nothing more, so deleting it
 /// after the upgrade is a one-file change plus repointing callers at the platform route.
 ///
+/// This is a decision trail, NOT an audit trail, and against <c>SPEC.md</c>'s tamper-evident
+/// differentiator the distinction is load-bearing: it serves the live <c>PendingApprovals</c>
+/// table — a mutable operational row that a later write can change — rather than the append-only
+/// audit database, whose rows remain readable through no API at this pin. What this route proves is
+/// that a decision was made and what it did; it does not prove the record has not been altered
+/// since. Do not cite it as the tamper-evident surface until the upgrade in #40 lands the
+/// platform's own feed.
+///
 /// Tenant isolation is the platform's, not this file's: <c>PendingApproval</c> is a
 /// <c>TenantEntityBase</c> carrying a global query filter on <c>PlatformDbContext</c>, so the query
-/// below cannot see another tenant's rows even though it names no tenant.
+/// below cannot see another tenant's rows even though it names no tenant. That is now observed
+/// rather than assumed — <c>One_firms_decision_trail_never_contains_another_firms_decisions</c>
+/// runs two real seeded tenants through the real pipeline and fails if the filter is bypassed.
 /// </summary>
 internal static class DecisionTrailEndpoints
 {
