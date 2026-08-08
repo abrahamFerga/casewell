@@ -31,7 +31,7 @@ public sealed class DecisionTrailTests(IntegrationFixture fixture)
         using var client = fixture.AdminClient();
 
         await SeedMatterAsync(client, "Audit Shape Co - Retainer");
-        await StreamTurnAsync(client, "Record a 1200 retainer deposit into trust on Audit Shape Co - Retainer");
+        await StreamTurnAsync(client, "Record a 1200 retainer deposit into trust on 'Audit Shape Co - Retainer' for 'retainer received'");
         var id = await ApproveAsync(client, "record_trust_deposit");
 
         // The blocked attempt IS audited; the execution that followed is not. This asserts the
@@ -67,7 +67,7 @@ public sealed class DecisionTrailTests(IntegrationFixture fixture)
         using var client = fixture.AdminClient();
 
         await SeedMatterAsync(client, "Trail Co - Retainer");
-        await StreamTurnAsync(client, "Record a 3400 retainer deposit into trust on Trail Co - Retainer");
+        await StreamTurnAsync(client, "Record a 3400 retainer deposit into trust on 'Trail Co - Retainer' for 'retainer received'");
         var id = await ApproveAsync(client, "record_trust_deposit");
 
         // ?take=500 (the endpoint's clamp ceiling) rather than the default 100. This fixes no
@@ -84,12 +84,30 @@ public sealed class DecisionTrailTests(IntegrationFixture fixture)
         Assert.Equal("record_trust_deposit", decision.GetProperty("toolName").GetString());
         Assert.Equal("Executed", decision.GetProperty("status").GetString());
         Assert.Equal("legal", decision.GetProperty("moduleId").GetString());
-        Assert.False(string.IsNullOrWhiteSpace(decision.GetProperty("result").GetString()));
         Assert.NotNull(decision.GetProperty("resolvedAt").GetString());
+
+        // "Non-empty" is not an outcome. This test is named for the outcome it reports, and a
+        // non-empty check passes just as happily on a tool that FAILED — which is what was
+        // happening until the quoted phrasing above. MockChatClient maps quoted spans to string
+        // params in parameter order and otherwise dumps the whole message into the first one, so
+        // the old unquoted wording sent matterName="Record a 3400 retainer deposit into trust on
+        // Trail Co - Retainer" and the tool returned "No matter named '…'". Status is still
+        // Executed — ApprovalStatus.Failed means the tool THREW, and a business-level refusal is a
+        // normal return — so nothing went red and the decision trail was being proven against
+        // deposits that never landed.
+        var result = decision.GetProperty("result").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(result));
+        Assert.DoesNotContain("No matter named", result!, StringComparison.Ordinal);
+
+        // The matter AND the money, not just "it didn't error": the matter name proves the quoted
+        // span reached matterName, and the formatted amount proves the numeric argument was mapped
+        // too — TrustAccounting.Money renders 3400 as "$3,400.00".
+        Assert.Contains("Trail Co - Retainer", result!, StringComparison.Ordinal);
+        Assert.Contains("$3,400.00", result!, StringComparison.Ordinal);
 
         // A decision still awaiting a human is not a decision, and must not appear.
         await SeedMatterAsync(client, "Still Pending Co - Retainer");
-        await StreamTurnAsync(client, "Record a 90 retainer deposit into trust on Still Pending Co - Retainer");
+        await StreamTurnAsync(client, "Record a 90 retainer deposit into trust on 'Still Pending Co - Retainer' for 'retainer received'");
 
         var pendingIds = (await client.GetFromJsonAsync<JsonElement>("/api/chat/approvals"))
             .EnumerateArray().Select(a => a.GetProperty("id").GetGuid()).ToHashSet();
@@ -130,11 +148,11 @@ public sealed class DecisionTrailTests(IntegrationFixture fixture)
         using var firmB = fixture.AdminClient(subject: "partner-b", tenant: "isolation-co");
 
         await SeedMatterAsync(firmA, "Firm A Holdings - Retainer");
-        await StreamTurnAsync(firmA, "Record a 1500 retainer deposit into trust on Firm A Holdings - Retainer");
+        await StreamTurnAsync(firmA, "Record a 1500 retainer deposit into trust on 'Firm A Holdings - Retainer' for 'retainer received'");
         var firmAId = await ApproveAsync(firmA, "record_trust_deposit");
 
         await SeedMatterAsync(firmB, "Firm B Ventures - Retainer");
-        await StreamTurnAsync(firmB, "Record a 2600 retainer deposit into trust on Firm B Ventures - Retainer");
+        await StreamTurnAsync(firmB, "Record a 2600 retainer deposit into trust on 'Firm B Ventures - Retainer' for 'retainer received'");
         var firmBId = await ApproveAsync(firmB, "record_trust_deposit");
 
         Assert.NotEqual(firmAId, firmBId);
