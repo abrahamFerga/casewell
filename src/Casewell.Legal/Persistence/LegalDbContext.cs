@@ -35,6 +35,7 @@ public sealed class LegalDbContext(
     public DbSet<TenantClause> Clauses => Set<TenantClause>();
     public DbSet<DocumentTemplate> DocumentTemplates => Set<DocumentTemplate>();
     public DbSet<PlaybookRule> PlaybookRules => Set<PlaybookRule>();
+    public DbSet<AssistantFeedback> AssistantFeedback => Set<AssistantFeedback>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -255,6 +256,20 @@ public sealed class LegalDbContext(
             b.Property(x => x.Guidance).HasMaxLength(2000).IsRequired();
             b.Property(x => x.Severity).HasConversion<string>().HasMaxLength(16);
             b.HasIndex(x => x.TenantId);
+            b.HasQueryFilter(x => x.TenantId == tenantContext.TenantId);
+        });
+
+        modelBuilder.Entity<AssistantFeedback>(b =>
+        {
+            b.ToTable("assistant_feedback");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.MessageId).HasMaxLength(100).IsRequired();
+            b.Property(x => x.UserDisplay).HasMaxLength(200);
+            b.Property(x => x.Comment).HasMaxLength(2000);
+            b.HasIndex(x => x.ConversationId);
+            // One verdict per reader per message: a second thumb from the same user UPDATES the
+            // first rather than stacking, so a reader who clicks twice cannot skew the metric.
+            b.HasIndex(x => new { x.TenantId, x.MessageId, x.UserId }).IsUnique();
             b.HasQueryFilter(x => x.TenantId == tenantContext.TenantId);
         });
 
