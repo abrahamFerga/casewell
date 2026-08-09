@@ -244,5 +244,94 @@
    }
   ],
   "closingIssuesReferences": []
+ },
+ {
+  "number": 908,
+  "title": "behind main but otherwise clean — must be repaired, not refused",
+  "headRefName": "fix/908-behind",
+  "labels": [
+   {
+    "name": "agent:approved"
+   }
+  ],
+  "mergeStateStatus": "BEHIND",
+  "body": "plenipo-agent envelope",
+  "isDraft": false,
+  "baseRefName": "main",
+  "mergeable": "MERGEABLE",
+  "reviewDecision": "",
+  "statusCheckRollup": [
+   {
+    "name": "PR gates",
+    "workflowName": "Agent gates",
+    "conclusion": "SUCCESS",
+    "startedAt": "2026-08-06T01:31:56Z",
+    "completedAt": "2026-08-06T01:32:05Z"
+   }
+  ],
+  "files": [
+   {
+    "path": "tests/X.cs"
+   }
+  ],
+  "closingIssuesReferences": []
+ },
+ {
+  "number": 909,
+  "title": "a real conflict must still block — BEHIND is not a licence to merge DIRTY",
+  "headRefName": "fix/909-dirty",
+  "labels": [
+   {
+    "name": "agent:approved"
+   }
+  ],
+  "mergeStateStatus": "DIRTY",
+  "body": "plenipo-agent envelope",
+  "isDraft": false,
+  "baseRefName": "main",
+  "mergeable": "MERGEABLE",
+  "reviewDecision": "",
+  "statusCheckRollup": [
+   {
+    "name": "PR gates",
+    "workflowName": "Agent gates",
+    "conclusion": "SUCCESS",
+    "startedAt": "2026-08-06T01:31:56Z",
+    "completedAt": "2026-08-06T01:32:05Z"
+   }
+  ],
+  "files": [
+   {
+    "path": "tests/X.cs"
+   }
+  ],
+  "closingIssuesReferences": []
+ },
+ {
+  "number": 910,
+  "title": "behind AND unapproved — updating it would burn a CI run to learn nothing",
+  "headRefName": "fix/910-behind-unapproved",
+  "labels": [],
+  "mergeStateStatus": "BEHIND",
+  "body": "plenipo-agent envelope",
+  "isDraft": false,
+  "baseRefName": "main",
+  "mergeable": "MERGEABLE",
+  "reviewDecision": "",
+  "statusCheckRollup": [
+   {
+    "name": "PR gates",
+    "workflowName": "Agent gates",
+    "conclusion": "SUCCESS",
+    "startedAt": "2026-08-06T01:31:56Z",
+    "completedAt": "2026-08-06T01:32:05Z"
+   }
+  ],
+  "files": [
+   {
+    "path": "tests/X.cs"
+   }
+  ],
+  "closingIssuesReferences": []
  }
 ]

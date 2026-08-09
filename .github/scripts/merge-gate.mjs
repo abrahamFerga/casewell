@@ -34,6 +34,8 @@ const RUNS_FIXTURE = value('--runs-fixture');
 
 // Fixture data describes pull requests that do not exist. Nothing driven by it may reach the
 // network — so `--fixture` degrades `--merge` to a simulation rather than being ignored by it.
+// Without this, `--fixture x.json --merge` tries to squash-merge pull requests numbered 901-910 in
+// whatever repo it happens to be run from.
 const SIMULATE = Boolean(FIXTURE);
 
 const gh = (args) => {
@@ -42,9 +44,10 @@ const gh = (args) => {
   return r.stdout;
 };
 
-// Same call, but a failure is reported instead of thrown. Used only AFTER a merge has already
-// landed: at that point throwing would fail the run and skip every remaining pull request over
-// something that is bookkeeping, not safety.
+// Same call, but a failure is reported instead of thrown. Used for the steps whose failure must not
+// take the rest of the queue down with them: closing a linked issue after a merge has already
+// landed, and updating a stale branch. Throwing there would fail the run and skip every remaining
+// pull request over something that is recoverable next tick.
 const ghSoft = (args) => {
   const r = spawnSync('gh', args, { encoding: 'utf8', shell: process.platform === 'win32' });
   return { ok: r.status === 0, out: (r.stderr || r.stdout || '').trim().split('\n')[0] ?? '' };
@@ -75,6 +78,9 @@ const SURFACE_RE = /^\s*(?:public[- ])?surface:\s*(additive|breaking|none)\b/im;
 const PR_FIELDS = [
   'number', 'title', 'body', 'isDraft', 'headRefName', 'baseRefName', 'labels',
   'mergeable', 'mergeStateStatus', 'reviewDecision', 'statusCheckRollup', 'files', 'author',
+  // Only ever reported, never gated on. A queue that stops moving looks identical to a healthy one
+  // in a run log that prints no ages — which is how this went unnoticed for weeks.
+  'createdAt',
   // Read rather than parsed out of the body: this is the link GitHub itself acts on, so it also
   // covers an issue attached through the Development sidebar with no keyword in the text.
   'closingIssuesReferences',
@@ -208,7 +214,19 @@ function evaluate(pr) {
   if (pending.length) fail.push(`checks_green: ${pending.length} check(s) still running`);
   if (broken.length) fail.push(`checks_green: ${broken.map((c) => c.name || c.context).join(', ')} not passing`);
   if (pr.mergeable && pr.mergeable !== 'MERGEABLE') fail.push(`mergeable: mergeable=${pr.mergeable}`);
-  if (['DIRTY', 'BLOCKED', 'BEHIND'].includes(pr.mergeStateStatus)) fail.push(`mergeable: mergeStateStatus=${pr.mergeStateStatus}`);
+  // `BEHIND` is staleness, not a defect, and it is the ONE mergeStateStatus this script can repair
+  // by itself — which is why it is no longer lumped in with DIRTY and BLOCKED. Those need someone
+  // else: DIRTY needs a human or the author to resolve a real conflict, BLOCKED needs a branch
+  // protection rule satisfied. BEHIND needs one API call.
+  //
+  // Treating all three as terminal is what turned this queue into a ratchet, observed across six
+  // repos: the moment anything landed on main, every other open PR went BEHIND, nothing in the loop
+  // had ever called `gh pr update-branch` (zero occurrences in the whole marketplace), and so the
+  // queue could absorb exactly one merge and then stopped forever. Fourteen of twenty-five open
+  // pull requests were sitting on this single reason, three of them already carrying
+  // `agent:approved` — the system had decided they should merge and then could not.
+  const stale = pr.mergeStateStatus === 'BEHIND';
+  if (['DIRTY', 'BLOCKED'].includes(pr.mergeStateStatus)) fail.push(`mergeable: mergeStateStatus=${pr.mergeStateStatus}`);
   if (pr.reviewDecision === 'CHANGES_REQUESTED') fail.push('no_blocking_review: a review requested changes');
   if (!labels.includes('agent:approved')) fail.push('agent_approved: no `agent:approved` label — nothing has reviewed this');
   if (labels.includes('agent:changes-requested')) fail.push('agent_approved: `agent:changes-requested` is still set');
@@ -257,7 +275,7 @@ function evaluate(pr) {
     }
   }
 
-  return { pr, fail, changeClass };
+  return { pr, fail, changeClass, stale };
 }
 
 const results = prs.map(evaluate).sort((a, b) => a.pr.number - b.pr.number);
@@ -291,7 +309,17 @@ function closeLinkedIssues(pr) {
 console.log(`autonomy level ${LEVEL} · ${results.length} open PR(s) · cap ${MAX_MERGES}/run\n`);
 
 let merged = 0;
-for (const { pr, fail, changeClass } of results) {
+let updated = 0;
+const DAY_MS = 86_400_000;
+const ageDays = (pr) => {
+  const t = Date.parse(pr.createdAt ?? '');
+  return Number.isFinite(t) ? Math.floor((Date.now() - t) / DAY_MS) : null;
+};
+// The repo's own weekly review question is "open PRs older than two days — is review the
+// constraint, or is a gate stuck?". Nothing ever answered it, because nothing printed an age.
+const STALE_QUEUE_DAYS = 2;
+
+for (const { pr, fail, changeClass, stale } of results) {
   // Printed for every pull request, on the dry run too, so "this will close nothing" is visible
   // BEFORE the merge rather than inferred from a board that stopped draining. Deliberately not a
   // gate: a `chore/` PR with no issue behind it is legitimate, and a gate that blocks on the
@@ -300,6 +328,35 @@ for (const { pr, fail, changeClass } of results) {
   const closesNote = closes.length
     ? `closes ${closes.map((n) => `#${n}`).join(', ')}`
     : 'closes nothing — no issue is linked to this pull request';
+
+  // ── Stale but otherwise clean: repair it, do not merge it ──────────────────
+  // Deliberately gated on `fail.length === 0` — a branch is only worth updating when freshness is
+  // the LAST thing wrong with it. Updating every BEHIND pull request regardless would re-trigger
+  // CI on branches that are also unreviewed, unapproved or red, spending a full check run per
+  // fifteen-minute tick to learn nothing.
+  //
+  // And it updates WITHOUT merging, even though the gates all passed a moment ago. The update
+  // writes a new head commit, so every one of those checks now refers to a base that no longer
+  // exists; merging on them is precisely the superseded-green failure the rollup logic above
+  // exists to prevent. The next tick sees a fresh, green, CLEAN pull request and merges it then.
+  if (fail.length === 0 && stale) {
+    if (!DO_MERGE) {
+      console.log(`  STALE  #${pr.number} ${pr.title} [${changeClass}] — passes every gate but is behind ${pr.baseRefName ?? 'the base branch'}; --merge would update it`);
+      console.log(`         ${closesNote}`);
+    } else if (updated >= MAX_MERGES) {
+      console.log(`  HELD   #${pr.number} — under_cap: ${MAX_MERGES} branch update(s) already this run`);
+    } else if (SIMULATE) {
+      updated++;
+      console.log(`  WOULD UPDATE #${pr.number} ${pr.title} — behind ${pr.baseRefName ?? 'base'}`);
+    } else {
+      const { ok, out } = ghSoft(['pr', 'update-branch', String(pr.number)]);
+      updated++;
+      console.log(ok
+        ? `  UPDATE #${pr.number} ${pr.title} — updated from ${pr.baseRefName ?? 'base'}; merges next tick once checks are green`
+        : `  BLOCK  #${pr.number} — mergeable: behind ${pr.baseRefName ?? 'base'} and the update failed: ${out}`);
+    }
+    continue;
+  }
 
   if (fail.length === 0) {
     if (!DO_MERGE) {
@@ -316,10 +373,8 @@ for (const { pr, fail, changeClass } of results) {
       // commit that is no longer the tip.
       //
       // `/plenipo:ship` documents this script as re-evaluating "every gate before touching
-      // anything". That was true PER RUN and false WITHIN one, so with `maxMergesPerTick >= 2`
-      // the second merge landed on a verdict nothing re-checked. In practice the re-check usually
-      // reports `mergeStateStatus=BEHIND` and holds the PR for the next tick, which is the
-      // correct answer: its checks have not run against the base it would land on.
+      // anything". That was true PER RUN and false WITHIN one, so with `maxMergesPerTick >= 2` the
+      // second merge landed on a verdict nothing re-checked.
       if (merged > 0) {
         console.log(`  RECHECK #${pr.number} — an earlier merge moved the base; re-reading it`);
         if (!SIMULATE) {
@@ -330,11 +385,21 @@ for (const { pr, fail, changeClass } of results) {
             for (const f of fresh.fail) console.log(`         - ${f}`);
             continue;
           }
+          // The overwhelmingly common outcome of that earlier merge: this PR is now behind the base
+          // it would land on. Repair it and let the next tick merge it — the same rule as the
+          // top-of-loop stale path, and the reason that path exists at all. Before it did, this
+          // re-check reported BEHIND as a hard block, which was correct and permanent.
+          if (fresh.stale) {
+            const { ok, out } = ghSoft(['pr', 'update-branch', String(pr.number)]);
+            updated++;
+            console.log(ok
+              ? `  UPDATE #${pr.number} ${pr.title} — the earlier merge left it behind; updated, merges next tick`
+              : `  BLOCK  #${pr.number} — behind after an earlier merge and the update failed: ${out}`);
+            continue;
+          }
         }
       }
 
-      // Fixture runs never touch the network — otherwise `--fixture x.json --merge` would try to
-      // squash-merge pull requests numbered 901-907 in whatever repo it happened to be run from.
       if (SIMULATE) {
         merged++;
         console.log(`  WOULD MERGE #${pr.number} ${pr.title} [${changeClass}]`);
@@ -349,14 +414,34 @@ for (const { pr, fail, changeClass } of results) {
       closeLinkedIssues(pr);
     }
   } else {
-    console.log(`  BLOCK  #${pr.number} ${pr.title} [${changeClass}]`);
+    const age = ageDays(pr);
+    const ageNote = age === null ? '' : ` · open ${age}d`;
+    console.log(`  BLOCK  #${pr.number} ${pr.title} [${changeClass}]${ageNote}`);
     console.log(`         ${closesNote}`);
     for (const f of fail) console.log(`         - ${f}`);
   }
 }
 
-const blocked = results.filter((r) => r.fail.length).length;
-console.log(`\n${results.length - blocked} ready · ${blocked} blocked · ${merged} merged\n`);
+const blocked = results.filter((r) => r.fail.length);
+const staleQueue = blocked.filter((r) => (ageDays(r.pr) ?? 0) >= STALE_QUEUE_DAYS);
+console.log(`\n${results.length - blocked.length} ready · ${blocked.length} blocked · ${updated} updated · ${merged} merged\n`);
+
+// ── Say out loud when the queue has stopped ──────────────────────────────────
+// This run exits 0 whatever it finds (see below), which means a queue that has been frozen for a
+// week and a queue that merged everything both render as a green checkmark on the schedule. That
+// is not a hypothetical: the fleet ran this cron successfully every fifteen minutes while merging
+// nothing at all, and the failure was invisible for weeks precisely because every run said
+// "success". An annotation costs nothing and shows up on the run without failing it.
+if (staleQueue.length) {
+  const worst = Math.max(...staleQueue.map((r) => ageDays(r.pr) ?? 0));
+  const msg =
+    `${staleQueue.length} pull request(s) blocked for ${STALE_QUEUE_DAYS}+ days (oldest ${worst}d): ` +
+    `${staleQueue.map((r) => `#${r.pr.number}`).join(', ')}. ` +
+    'Review is either the constraint or a gate is stuck — a queue this old is not waiting for CI.';
+  console.log(`  !! ${msg}\n`);
+  if (process.env.GITHUB_ACTIONS) console.log(`::warning title=Merge queue is not moving::${msg}`);
+}
+
 // Blocked PRs are the normal state of a healthy queue, not an error — a non-zero exit here would
 // turn "waiting for CI" into a failed scheduled run every fifteen minutes.
 process.exit(0);
