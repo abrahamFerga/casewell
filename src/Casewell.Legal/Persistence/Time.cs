@@ -28,4 +28,20 @@ public sealed class TimeEntry : TenantEntityBase
     public DateOnly WorkedOn { get; set; }
 
     public bool Billable { get; set; } = true;
+
+    /// <summary>
+    /// UTBMS-style activity code (L110, A103, …). Optional on entries logged before billing
+    /// existed; <c>start_timer</c> and <c>log_time</c> suggest one from the description when the
+    /// caller omits it, because an uncoded entry is the one a client challenges.
+    /// </summary>
+    public string? ActivityCode { get; set; }
+
+    /// <summary>
+    /// Rate agreed for this entry, when it differs from the rate used at invoice time. Null means
+    /// "bill at whatever rate the invoice is drawn on".
+    /// </summary>
+    public decimal? Rate { get; set; }
+
+    /// <summary>Set when an invoice draft picks this entry up; null means unbilled.</summary>
+    public Guid? InvoiceId { get; set; }
 }
