@@ -38,7 +38,7 @@ public sealed class LegalModule : IModule
     {
         Id = Id,
         DisplayName = "Legal",
-        Version = "1.10.0",
+        Version = "1.11.0",
         Description = "Matter-centric legal assistant. Organize case documents into matters, search a clause library, and draft clauses for review.",
         Icon = "scale",
         AgentInstructions =
@@ -66,6 +66,22 @@ public sealed class LegalModule : IModule
             "approval needed, it is the one quick-capture write; answer 'what did I work on' with list_time. " +
             "BILLING: when asked to prepare a bill or pre-bill, use export_prebill (matter, optional date " +
             "range) — it files the PDF on the matter for billing review. " +
+            "TIME CAPTURE: when the user says they are starting work ('start a timer on Acme', \"I'm on the " +
+            "Acme call\"), use start_timer; when they are done, stop_timer turns the elapsed time into a " +
+            "logged entry rounded up to the next tenth of an hour. Answer 'is my timer running' with " +
+            "timer_status. Only one timer runs at a time — starting a second is refused, so stop the first. " +
+            "For work already finished, log_time is the direct route; do not start and immediately stop a " +
+            "timer to fake it. Activity codes are suggested from the narrative when not given. " +
+            "EXPENSES: costs the firm advanced and expects back (filing fees, couriers, experts, transcripts) " +
+            "go in with record_expense. " +
+            "INVOICING: draft_invoice bills a matter in one step — it sweeps every unbilled billable hour, " +
+            "every unrecovered expense, and an optional flat fee into one draft, so never list those first. " +
+            "It needs the hourly rate to bill time at. Read one back with get_invoice and survey them with " +
+            "list_invoices. Then approve_invoice, then send_invoice. " +
+            "SEPARATION OF DUTIES IS ABSOLUTE: whoever drafted an invoice can NEVER approve it, and approval " +
+            "is refused outright if they try. Never suggest a workaround, never re-draft under another name — " +
+            "tell the user a second person with billing rights has to approve it, and stop. An unapproved " +
+            "invoice cannot be sent either. " +
             "TRUST ACCOUNTING: client money is never the firm's money. Record retainers, settlement " +
             "proceeds, and cost advances with record_trust_deposit; record fee transfers, filing fees, and " +
             "refunds with record_trust_disbursement — both name the matter, the amount, and what the money " +
@@ -350,6 +366,64 @@ public sealed class LegalModule : IModule
                 Description = "Generate the monthly three-way trust reconciliation (bank vs. book vs. client ledgers) as a PDF worksheet in the document store. Side-effecting: writes a document and requires human approval.",
                 Permission = Permissions.ForTool(Id, "export_trust_reconciliation"),
                 RequiresApproval = true,
+            },
+            new ToolDescriptor
+            {
+                Name = "start_timer",
+                Description = "Start a running timer on a matter, with an optional activity code suggested from the description. Quick capture: not approval-gated. Only one timer runs at a time.",
+                Permission = Permissions.ForTool(Id, "start_timer"),
+            },
+            new ToolDescriptor
+            {
+                Name = "stop_timer",
+                Description = "Stop the running timer and log the elapsed time as a time entry, rounded up to the next tenth of an hour. Quick capture: not approval-gated.",
+                Permission = Permissions.ForTool(Id, "stop_timer"),
+            },
+            new ToolDescriptor
+            {
+                Name = "timer_status",
+                Description = "Whether a timer is running, on which matter, and how long it has been going.",
+                Permission = Permissions.ForTool(Id, "timer_status"),
+            },
+            new ToolDescriptor
+            {
+                Name = "record_expense",
+                Description = "Record a cost the firm advanced on a matter and expects to recover (filing fee, courier, expert, transcript). Side-effecting: it lands on a client's bill and requires human approval.",
+                Permission = Permissions.ForTool(Id, "record_expense"),
+                RequiresApproval = true,
+            },
+            new ToolDescriptor
+            {
+                Name = "draft_invoice",
+                Description = "Draft an invoice for a matter in one step from all unbilled billable time, unrecovered expenses, and an optional flat fee. Side-effecting: writes data and requires human approval.",
+                Permission = Permissions.ForTool(Id, "draft_invoice"),
+                RequiresApproval = true,
+            },
+            new ToolDescriptor
+            {
+                Name = "approve_invoice",
+                Description = "Approve a draft invoice so it can be sent. Separation of duties: the preparer can never approve their own invoice and the attempt is refused. Side-effecting and requires human approval.",
+                Permission = Permissions.ForTool(Id, "approve_invoice"),
+                RequiresApproval = true,
+            },
+            new ToolDescriptor
+            {
+                Name = "send_invoice",
+                Description = "Mark an approved invoice as sent to the client; refused while it is still a draft. Outward-facing and requires human approval.",
+                Permission = Permissions.ForTool(Id, "send_invoice"),
+                RequiresApproval = true,
+            },
+            new ToolDescriptor
+            {
+                Name = "list_invoices",
+                Description = "List invoices for one matter or the firm, with status and totals.",
+                Permission = Permissions.ForTool(Id, "list_invoices"),
+            },
+            new ToolDescriptor
+            {
+                Name = "get_invoice",
+                Description = "One invoice in full: every line with hours, rate, and amount, plus who prepared and approved it.",
+                Permission = Permissions.ForTool(Id, "get_invoice"),
             },
             new ToolDescriptor
             {
@@ -704,7 +778,35 @@ public sealed class LegalModule : IModule
             },
             new TabDescriptor
             {
-                Id = "clauses", Label = "Clauses", Route = "/legal/clauses", Icon = "file-text", Order = 8,
+                // Read-only like Trust, and for the same reason: an invoice's status is the output
+                // of the draft → approve → send workflow, and a hand-edit form over it would be a
+                // back door around the separation-of-duties rule that workflow exists to enforce.
+                Id = "invoices", Label = "Invoices", Route = "/legal/invoices", Icon = "receipt", Order = 8,
+                Permission = ViewMatters,
+                DataEndpoint = "/api/legal/invoices",
+                Placeholder = "No invoices yet. Bill a matter from Chat - try: 'Draft an invoice for Acme at 350 an hour'. It sweeps up every unbilled hour, expense, and flat fee in one step; whoever drafts it cannot be the one who approves it.",
+                Columns =
+                [
+                    new("number", "Invoice"), new("matterName", "Matter"), new("status", "Status"),
+                    new("total", "Total"), new("periodEnd", "Through"),
+                    new("preparedBy", "Prepared by"), new("approvedBy", "Approved by"),
+                ],
+            },
+            new TabDescriptor
+            {
+                Id = "expenses", Label = "Expenses", Route = "/legal/expenses", Icon = "wallet", Order = 9,
+                Permission = ViewMatters,
+                DataEndpoint = "/api/legal/expenses",
+                Placeholder = "No expenses recorded. Costs the firm advanced - filing fees, couriers, experts - go in from Chat: 'Record a $402 filing fee on Acme'. Each one needs your approval and is swept into the next invoice.",
+                Columns =
+                [
+                    new("incurredOn", "Date"), new("matterName", "Matter"), new("amount", "Amount"),
+                    new("description", "Description"), new("billed", "Billed"), new("who", "Recorded by"),
+                ],
+            },
+            new TabDescriptor
+            {
+                Id = "clauses", Label = "Clauses", Route = "/legal/clauses", Icon = "file-text", Order = 10,
                 Permission = ViewClauses,
                 DataEndpoint = "/api/legal/clauses",
                 Columns = [new("title", "Clause"), new("category", "Category"), new("summary", "Summary")],
@@ -728,7 +830,7 @@ public sealed class LegalModule : IModule
             },
             new TabDescriptor
             {
-                Id = "playbook", Label = "Playbook", Route = "/legal/playbook", Icon = "shield-check", Order = 9,
+                Id = "playbook", Label = "Playbook", Route = "/legal/playbook", Icon = "shield-check", Order = 11,
                 Permission = ViewClauses,
                 DataEndpoint = "/api/legal/playbook",
                 Columns = [new("severity", "Severity"), new("title", "Rule"), new("guidance", "Guidance")],
@@ -757,6 +859,7 @@ public sealed class LegalModule : IModule
         services.AddScoped<CalendarTools>();
         services.AddScoped<TimeTools>();
         services.AddScoped<TrustTools>();
+        services.AddScoped<BillingTools>();
         services.AddScoped<TaskTools>();
         services.AddScoped<BriefingTools>();
         services.AddHostedService<DeadlineReminderService>();
@@ -1034,6 +1137,51 @@ public sealed class LegalModule : IModule
             .RequireAuthorization(PermissionRequirement.PolicyName(ViewMatters))
             .WithName("Legal_GetTrustTransactions");
 
+        // Invoices — drives the read-only Invoices tab. Wall-filtered like the trust journal.
+        group.MapGet("/invoices", async (
+                LegalDbContext db, Cortex.Core.Identity.ICurrentUser current, CancellationToken cancellationToken) =>
+            {
+                var matters = (await db.Matters
+                        .Select(m => new { m.Id, m.Name, m.RestrictedUserIdsJson })
+                        .ToListAsync(cancellationToken))
+                    .Where(m => Matter.WallAllows(m.RestrictedUserIdsJson, current.UserId))
+                    .ToDictionary(m => m.Id, m => m.Name);
+                var rows = (await db.Invoices
+                        .OrderByDescending(i => i.Number)
+                        .Take(500)
+                        .ToListAsync(cancellationToken))
+                    .Where(i => matters.ContainsKey(i.MatterId))
+                    .Select(i => new InvoiceDto(
+                        i.Id, i.Number, matters[i.MatterId], i.Status.ToString().ToLowerInvariant(),
+                        Billing.Money(i.Total), i.PeriodEnd, i.PreparedByDisplay, i.ApprovedByDisplay));
+                return Results.Ok(rows);
+            })
+            .RequireAuthorization(PermissionRequirement.PolicyName(ViewMatters))
+            .WithName("Legal_GetInvoices");
+
+        // Expenses — drives the Expenses tab. "Billed" says whether an invoice already swept it.
+        group.MapGet("/expenses", async (
+                LegalDbContext db, Cortex.Core.Identity.ICurrentUser current, CancellationToken cancellationToken) =>
+            {
+                var matters = (await db.Matters
+                        .Select(m => new { m.Id, m.Name, m.RestrictedUserIdsJson })
+                        .ToListAsync(cancellationToken))
+                    .Where(m => Matter.WallAllows(m.RestrictedUserIdsJson, current.UserId))
+                    .ToDictionary(m => m.Id, m => m.Name);
+                var rows = (await db.Expenses
+                        .OrderByDescending(e => e.IncurredOn).ThenByDescending(e => e.CreatedAt)
+                        .Take(500)
+                        .ToListAsync(cancellationToken))
+                    .Where(e => matters.ContainsKey(e.MatterId))
+                    .Select(e => new ExpenseDto(
+                        e.Id, e.IncurredOn, matters[e.MatterId], Billing.Money(e.Amount), e.Description,
+                        e.InvoiceId is null ? (e.Billable ? "unbilled" : "non-recoverable") : "billed",
+                        e.UserDisplay));
+                return Results.Ok(rows);
+            })
+            .RequireAuthorization(PermissionRequirement.PolicyName(ViewMatters))
+            .WithName("Legal_GetExpenses");
+
         // A matter's attached documents (file ids resolve against /api/files/{id}). Outside the
         // wall, the matter 404s — indistinguishable from missing, like cross-tenant ids.
         // The matter's working file as a generic DETAIL DOCUMENT (drill-down from the Matters tab):
@@ -1158,6 +1306,14 @@ public sealed class LegalModule : IModule
     private sealed record TrustTransactionDto(
         Guid Id, DateOnly OccurredOn, string MatterName, string Type, string Amount,
         string Description, string? Reference, string? Who);
+
+    private sealed record InvoiceDto(
+        Guid Id, string Number, string MatterName, string Status, string Total,
+        DateOnly PeriodEnd, string? PreparedBy, string? ApprovedBy);
+
+    private sealed record ExpenseDto(
+        Guid Id, DateOnly IncurredOn, string MatterName, string Amount, string Description,
+        string Billed, string? Who);
 
     private sealed record ClauseDto(Guid Id, string Slug, string Title, string Category, string Summary, string Template);
 

@@ -71,6 +71,16 @@ builder.Services.AddCortexRole("paralegal",
     "tools.legal.list_matters",
         "tools.legal.log_time",
         "tools.legal.list_time",
+        // Time capture goes in; expenses, drafting, approving and sending an invoice stay with
+        // firm-admin. NOTE: this is NARROWER than SPEC.md:72, which says a paralegal "can draft
+        // documents and invoices; cannot approve invoices" — so the spec would grant
+        // draft_invoice here and this baseline withholds it. Deliberately left narrow: widening
+        // a permission grant is not a decision to make in passing, and whether a paralegal may
+        // draft a bill is a question about how a firm works, not about this code. Tracked in #54;
+        // resolve it there in either direction rather than reading intent out of this list.
+        "tools.legal.start_timer",
+        "tools.legal.stop_timer",
+        "tools.legal.timer_status",
         "tools.legal.add_task",
         "tools.legal.list_tasks",
         "tools.legal.complete_task",

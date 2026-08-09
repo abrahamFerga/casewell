@@ -214,6 +214,76 @@ X-Dev-Subject: {{subject}}
 X-Dev-Tenant: {{tenant}}
 X-Dev-Roles: {{roles}}
 
+### Invoices (drives the read-only Invoices tab)
+GET {{base}}/api/legal/invoices
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Expenses (drives the Expenses tab; "billed" says whether an invoice swept it up)
+GET {{base}}/api/legal/expenses
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### ─────────────────────────── Billing over chat ───────────────────────────
+
+### Start a timer (quick capture — NOT approval-gated)
+POST {{base}}/api/agui/{{module}}
+Content-Type: application/json
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+{
+  "messages": [{ "id": "m1", "role": "user", "content": "Start a timer on Acme Corp - NDA, drafting the NDA" }]
+}
+
+### Stop it — the elapsed time becomes a logged entry, rounded up to the next tenth of an hour
+POST {{base}}/api/agui/{{module}}
+Content-Type: application/json
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+{
+  "messages": [{ "id": "m1", "role": "user", "content": "Stop the timer" }]
+}
+
+### Draft an invoice — approval-gated. Sweeps unbilled time + expenses + an optional flat fee.
+POST {{base}}/api/agui/{{module}}
+Content-Type: application/json
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+{
+  "messages": [{ "id": "m1", "role": "user", "content": "Draft an invoice for Acme Corp - NDA at 350 an hour" }]
+}
+
+### Approve it AS THE PREPARER — must be REFUSED (separation of duties). Approve the gated call
+### above first, then send this with the same X-Dev-Subject that drafted it.
+POST {{base}}/api/agui/{{module}}
+Content-Type: application/json
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+{
+  "messages": [{ "id": "m1", "role": "user", "content": "Approve invoice INV-2026-0001" }]
+}
+
+### Approve it as SOMEONE ELSE — a different X-Dev-Subject is a different user, so this succeeds
+POST {{base}}/api/agui/{{module}}
+Content-Type: application/json
+X-Dev-Subject: reviewing-partner
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+{
+  "messages": [{ "id": "m1", "role": "user", "content": "Approve invoice INV-2026-0001" }]
+}
+
 ### Clause library
 GET {{base}}/api/legal/clauses
 X-Dev-Subject: {{subject}}
