@@ -14,10 +14,10 @@
 // the level — turning a real check into noise someone silences.
 
 import { spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const gate = join(here, 'merge-gate.mjs');
@@ -97,53 +97,100 @@ for (const [number, mustMatch, why] of closeCases) {
   }
 }
 
-// ── The second merge of a run must not act on a first-merge verdict ───────────
-// Gates are evaluated once, up front. `mergeable`, `checks_green` and `main_is_green` are all
-// assertions about the world RIGHT NOW, so the moment one merge lands they are stale for every
-// pull request still queued — the base moved and their checks ran against a commit that is no
-// longer the tip. `/plenipo:ship` documents this script as re-evaluating every gate "before
-// touching anything"; that was true per run and false within one.
+// ── A stale branch is repairable, a conflicted one is not ────────────────────
+// `BEHIND` used to sit in the same list as `DIRTY` and `BLOCKED`, and that one line froze the whole
+// fleet: the first merge onto main made every other open pull request BEHIND, nothing ever ran
+// `gh pr update-branch`, and so the queue absorbed exactly one merge and then stopped. Fourteen of
+// twenty-five open PRs across six repos were stuck on this single reason.
 //
-// Runs the merge path against fixtures, which `SIMULATE` keeps off the network entirely.
-//
-// From a scratch directory carrying its own `workflow.json`: the gate reads autonomy from the CWD,
-// and this repo's assets folder has none, so every fixture PR would be blocked by `level_permits`
-// and the merge path would never be reached. The assertion would then pass by never running.
-const sandbox = mkdtempSync(join(tmpdir(), 'merge-gate-'));
-writeFileSync(
-  join(sandbox, 'workflow.json'),
-  JSON.stringify({ autonomy: { level: 3, maxMergesPerTick: 2 } })
-);
-const mergeRun = spawnSync(process.execPath, [gate, '--fixture', fixture, '--merge'], { encoding: 'utf8', cwd: sandbox });
-if (mergeRun.status !== 0) {
-  console.error(`merge-gate --merge exited ${mergeRun.status}\n${mergeRun.stderr || mergeRun.stdout}`);
-  process.exit(1);
+// These assert on the presence of a `mergeable:` reason rather than on READY/STALE/BLOCK, for the
+// same reason as everything above: a verdict depends on `autonomy.level`, a gate reason does not.
+const mergeableCases = [
+  [908, false, 'BEHIND must not block — it is staleness, and this script can repair it in one call'],
+  [909, true, 'DIRTY must still block — a real conflict needs the author, not a branch update'],
+];
+
+for (const [number, mustFail, why] of mergeableCases) {
+  const reasons = reasonsFor(number);
+  if (reasons === null) {
+    console.log(`  FAIL #${number} — not present in the gate's output at all`);
+    failed++;
+    continue;
+  }
+
+  const fired = /mergeable:/.test(reasons);
+  if (fired === mustFail) {
+    console.log(`  ok   #${number} — ${why}`);
+  } else {
+    console.log(`  FAIL #${number} — the mergeable gate ${fired ? 'fired' : 'did NOT fire'}, expected the opposite.\n       ${why}\n       reasons:\n${reasons}`);
+    failed++;
+  }
 }
 
-// Nothing may reach the network from fixture data — a real `gh pr merge` here would squash
-// whatever pull request happens to carry that number in the repo the test ran from.
-if (/^\s{2}MERGED /m.test(mergeRun.stdout)) {
-  console.log('  FAIL --merge — fixture run reported a REAL merge; it must simulate, never call gh');
+// ── Which stale branches actually get updated ────────────────────────────────
+// The routing above is level-dependent by construction — a branch is only worth updating when
+// freshness is the LAST thing wrong with it, and at level 0 nothing is. So this runs the gate in a
+// scratch directory holding a level-3 `workflow.json`, which is the only way to assert the
+// STALE-versus-BLOCK split deterministically. The gate reads policy from `workflow.json` in the
+// working directory and the fixture path is absolute, so cwd is the whole control surface.
+const scratch = mkdtempSync(join(tmpdir(), 'merge-gate-'));
+writeFileSync(join(scratch, 'workflow.json'), JSON.stringify({ autonomy: { level: 3 } }));
+
+const levelled = spawnSync(process.execPath, [gate, '--fixture', fixture], {
+  encoding: 'utf8',
+  cwd: scratch,
+});
+
+if (levelled.status !== 0) {
+  console.log(`  FAIL — the gate exited ${levelled.status} under a level-3 policy\n${levelled.stderr || levelled.stdout}`);
   failed++;
 } else {
-  console.log('  ok   --merge — fixture data never reaches the network');
+  // [pr, the verdict its line must carry, what this case is protecting]
+  const routing = [
+    [908, 'STALE', 'a PR that passes every gate but freshness must be offered a branch update'],
+    [909, 'BLOCK', 'a conflicted PR must never be routed to update-branch'],
+    [910, 'BLOCK', 'behind AND unapproved must stay blocked — updating it spends a CI run to learn nothing'],
+  ];
+
+  for (const [number, verdict, why] of routing) {
+    const line = levelled.stdout.split('\n').find((l) => l.includes(`#${number} `));
+    if (line === undefined) {
+      console.log(`  FAIL #${number} — not present in the level-3 output at all`);
+      failed++;
+    } else if (new RegExp(`^\\s{2}${verdict}\\b`).test(line)) {
+      console.log(`  ok   #${number} — ${why}`);
+    } else {
+      console.log(`  FAIL #${number} — expected ${verdict}, got:\n       ${line.trim()}\n       ${why}`);
+      failed++;
+    }
+  }
 }
 
-const wouldMerge = (mergeRun.stdout.match(/^\s{2}WOULD MERGE #(\d+)/gm) ?? []);
-const rechecks = (mergeRun.stdout.match(/^\s{2}RECHECK #(\d+)/gm) ?? []);
+// ── `--fixture --merge` must never touch the network ─────────────────────────
+// Fixture data describes pull requests numbered 901-910 that exist nowhere. If `--merge` did not
+// degrade to a simulation, running this very test file with the merge flag would try to squash
+// pull request #901 in whatever repo the runner happened to be sitting in — and on a product repo
+// those numbers are real. The failure mode is not a wrong verdict, it is a wrong merge.
+const simulated = spawnSync(process.execPath, [gate, '--fixture', fixture, '--merge'], {
+  encoding: 'utf8',
+  cwd: scratch,
+});
 
-if (wouldMerge.length < 2) {
-  console.log(`  FAIL --merge — fixture must offer at least two mergeable PRs to exercise this; got ${wouldMerge.length}`);
+if (simulated.status !== 0) {
+  console.log(`  FAIL — \`--fixture --merge\` exited ${simulated.status}; it must simulate, not call gh\n${(simulated.stderr || simulated.stdout).split('\n').slice(0, 4).join('\n')}`);
   failed++;
-} else if (rechecks.length === wouldMerge.length - 1) {
-  console.log(`  ok   --merge — every merge after the first re-reads the world (${rechecks.length} re-check(s) for ${wouldMerge.length} merges)`);
+} else if (!/WOULD (MERGE|UPDATE)/.test(simulated.stdout)) {
+  console.log(`  FAIL — \`--fixture --merge\` produced no WOULD MERGE/UPDATE line, so nothing proves it simulated`);
+  failed++;
+} else if (/^\s{2}(MERGED|UPDATE) /m.test(simulated.stdout)) {
+  console.log(`  FAIL — \`--fixture --merge\` reported a REAL merge or branch update on fixture data`);
+  failed++;
 } else {
-  console.log(`  FAIL --merge — expected ${wouldMerge.length - 1} re-check(s) after the first merge, got ${rechecks.length}.\n       A second merge on a first-merge verdict is the bug this asserts.\n${mergeRun.stdout}`);
-  failed++;
+  console.log('  ok   simulate — `--fixture --merge` simulates and never reaches the network');
 }
 
 if (failed) {
   console.log(`\n${failed} rollup case(s) wrong. merge-gate is the last automated thing before main — do not merge this.\n`);
   process.exit(1);
 }
-console.log(`\nOK — ${cases.length} rollup, ${closeCases.length} linked-issue and 2 merge-path case(s) behave correctly.\n`);
+console.log(`\nOK — ${cases.length} rollup, ${closeCases.length} linked-issue, ${mergeableCases.length} mergeable, 3 stale-routing and 1 simulation case(s) behave correctly.\n`);
