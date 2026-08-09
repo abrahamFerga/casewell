@@ -15,7 +15,7 @@ public sealed class ManualSurfaceTests
     public void Tabs_ArePinned_InOrder()
     {
         Assert.Equal(
-            ["chat", "matters", "clients", "calendar", "tasks", "time", "hours", "trust", "clauses", "playbook"],
+            ["chat", "matters", "clients", "calendar", "tasks", "time", "hours", "trust", "invoices", "expenses", "clauses", "playbook"],
             Manifest.Tabs.OrderBy(t => t.Order).Select(t => t.Id));
     }
 
@@ -45,6 +45,12 @@ public sealed class ManualSurfaceTests
         Assert.Null(manifest.Tabs.First(t => t.Id == "chat").Editor);
         Assert.Null(manifest.Tabs.First(t => t.Id == "hours").Editor);
         Assert.Null(manifest.Tabs.First(t => t.Id == "trust").Editor);
+
+        // Nor do invoices and expenses. An invoice's status is the output of the draft → approve →
+        // send workflow; a hand-edit form over it would be a back door around the
+        // separation-of-duties rule that workflow exists to enforce.
+        Assert.Null(manifest.Tabs.First(t => t.Id == "invoices").Editor);
+        Assert.Null(manifest.Tabs.First(t => t.Id == "expenses").Editor);
     }
 
     [Fact]

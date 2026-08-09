@@ -18,6 +18,7 @@ public sealed class LegalToolSource : IModuleToolSource
         var calendar = scopedServices.GetRequiredService<CalendarTools>();
         var time = scopedServices.GetRequiredService<TimeTools>();
         var trust = scopedServices.GetRequiredService<TrustTools>();
+        var billing = scopedServices.GetRequiredService<BillingTools>();
         var tasks = scopedServices.GetRequiredService<TaskTools>();
         var briefing = scopedServices.GetRequiredService<BriefingTools>();
 
@@ -82,6 +83,73 @@ public sealed class LegalToolSource : IModuleToolSource
                 Permission = Permissions.ForTool(ModuleId, "export_trust_reconciliation"),
                 Function = AIFunctionFactory.Create(trust.ExportTrustReconciliation, name: "export_trust_reconciliation"),
                 RequiresApproval = true,
+            },
+            new ModuleTool
+            {
+                ModuleId = ModuleId,
+                Name = "start_timer",
+                Permission = Permissions.ForTool(ModuleId, "start_timer"),
+                Function = AIFunctionFactory.Create(billing.StartTimer, name: "start_timer"),
+            },
+            new ModuleTool
+            {
+                ModuleId = ModuleId,
+                Name = "stop_timer",
+                Permission = Permissions.ForTool(ModuleId, "stop_timer"),
+                Function = AIFunctionFactory.Create(billing.StopTimer, name: "stop_timer"),
+            },
+            new ModuleTool
+            {
+                ModuleId = ModuleId,
+                Name = "timer_status",
+                Permission = Permissions.ForTool(ModuleId, "timer_status"),
+                Function = AIFunctionFactory.Create(billing.TimerStatus, name: "timer_status"),
+            },
+            new ModuleTool
+            {
+                ModuleId = ModuleId,
+                Name = "record_expense",
+                Permission = Permissions.ForTool(ModuleId, "record_expense"),
+                Function = AIFunctionFactory.Create(billing.RecordExpense, name: "record_expense"),
+                RequiresApproval = true,
+            },
+            new ModuleTool
+            {
+                ModuleId = ModuleId,
+                Name = "draft_invoice",
+                Permission = Permissions.ForTool(ModuleId, "draft_invoice"),
+                Function = AIFunctionFactory.Create(billing.DraftInvoice, name: "draft_invoice"),
+                RequiresApproval = true,
+            },
+            new ModuleTool
+            {
+                ModuleId = ModuleId,
+                Name = "approve_invoice",
+                Permission = Permissions.ForTool(ModuleId, "approve_invoice"),
+                Function = AIFunctionFactory.Create(billing.ApproveInvoice, name: "approve_invoice"),
+                RequiresApproval = true,
+            },
+            new ModuleTool
+            {
+                ModuleId = ModuleId,
+                Name = "send_invoice",
+                Permission = Permissions.ForTool(ModuleId, "send_invoice"),
+                Function = AIFunctionFactory.Create(billing.SendInvoice, name: "send_invoice"),
+                RequiresApproval = true,
+            },
+            new ModuleTool
+            {
+                ModuleId = ModuleId,
+                Name = "list_invoices",
+                Permission = Permissions.ForTool(ModuleId, "list_invoices"),
+                Function = AIFunctionFactory.Create(billing.ListInvoices, name: "list_invoices"),
+            },
+            new ModuleTool
+            {
+                ModuleId = ModuleId,
+                Name = "get_invoice",
+                Permission = Permissions.ForTool(ModuleId, "get_invoice"),
+                Function = AIFunctionFactory.Create(billing.GetInvoice, name: "get_invoice"),
             },
             new ModuleTool
             {

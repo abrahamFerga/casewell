@@ -1,5 +1,9 @@
+using System.Net.Http.Json;
+using System.Text.Json;
+using Cortex.Infrastructure.Context;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
 using Testcontainers.PostgreSql;
 using Xunit;
 
@@ -81,6 +85,32 @@ public sealed class IntegrationFixture : IAsyncLifetime
         client.DefaultRequestHeaders.Add("X-Dev-Tenant", "dev");
         client.DefaultRequestHeaders.Add("X-Dev-Roles", roles);
         return client;
+    }
+
+    /// <summary>
+    /// A DI scope with tenant + user populated — how module tools run AFTER the platform's
+    /// auth/approval pipeline has done its part. Use it for dense domain assertions.
+    /// <para>
+    /// It deliberately <b>bypasses RBAC and the approval gate</b>, so it can never prove either
+    /// works: use <see cref="AdminClient"/> for those. The identity comes from a real
+    /// <c>/api/platform/me</c> round trip, so passing a different <paramref name="subject"/>
+    /// provisions a genuinely different user — which is what a separation-of-duties test needs.
+    /// </para>
+    /// </summary>
+    public async Task<(IServiceScope Scope, Guid TenantId, Guid UserId)> AuthorizedScopeAsync(
+        string subject = "it-admin", string? displayName = null)
+    {
+        using var client = AdminClient(subject: subject);
+        var me = await client.GetFromJsonAsync<JsonElement>("/api/platform/me");
+        var tenantId = me.GetProperty("tenantId").GetGuid();
+        var userId = me.GetProperty("userId").GetGuid();
+
+        var scope = Factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<RequestContext>();
+        context.SetTenant(tenantId);
+        context.SetUser(userId, subject, displayName ?? me.GetProperty("displayName").GetString());
+        context.SetPermissions(["*"]);
+        return (scope, tenantId, userId);
     }
 
     private sealed class CasewellAppFactory : WebApplicationFactory<Program>
