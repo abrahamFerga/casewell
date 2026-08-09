@@ -25,6 +25,11 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.AddCortexPlatform();
 
+// TODO(plenipo#153): the platform does not register IHttpContextAccessor at alpha.14, and the
+// approval-requester identity shim needs it to tell an approval re-execution apart from an
+// ordinary chat turn. Drop this when the platform restores the requester's identity itself.
+builder.Services.AddHttpContextAccessor();
+
 builder.AddCortexModule<LegalModule>();
 
 // Data-source connectors (default-off per tenant; enabled in the admin console):

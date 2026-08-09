@@ -12,6 +12,14 @@ public sealed class LegalToolSource : IModuleToolSource
 
     public IReadOnlyList<ModuleTool> GetTools(IServiceProvider scopedServices)
     {
+        // TODO(plenipo#153): every tool is wrapped so that a call being re-executed out of the
+        // approvals queue runs as the human who REQUESTED it, not the one who approved it. On an
+        // ordinary chat turn this is a pass-through. See ApprovalRequesterIdentity.
+        return BuildTools(scopedServices).RestoringRequesterIdentity(scopedServices);
+    }
+
+    private IReadOnlyList<ModuleTool> BuildTools(IServiceProvider scopedServices)
+    {
         var clauses = scopedServices.GetRequiredService<LegalTools>();
         var matters = scopedServices.GetRequiredService<MatterTools>();
         var conflicts = scopedServices.GetRequiredService<ConflictTools>();
