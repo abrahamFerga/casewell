@@ -3,6 +3,7 @@ using System;
 using Cortex.Modules.Legal.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Cortex.Modules.Legal.Persistence.Migrations
 {
     [DbContext(typeof(LegalDbContext))]
-    partial class LegalDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260807164043_AddAssistantFeedback")]
+    partial class AddAssistantFeedback
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -221,197 +224,6 @@ namespace Cortex.Modules.Legal.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("document_templates", "legal");
-                });
-
-            modelBuilder.Entity("Cortex.Modules.Legal.Persistence.Expense", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<decimal>("Amount")
-                        .HasPrecision(14, 2)
-                        .HasColumnType("numeric(14,2)");
-
-                    b.Property<bool>("Billable")
-                        .HasColumnType("boolean");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("CreatedBy")
-                        .HasColumnType("text");
-
-                    b.Property<string>("Description")
-                        .IsRequired()
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)");
-
-                    b.Property<DateOnly>("IncurredOn")
-                        .HasColumnType("date");
-
-                    b.Property<Guid?>("InvoiceId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("MatterId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("UpdatedBy")
-                        .HasColumnType("text");
-
-                    b.Property<string>("UserDisplay")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<Guid?>("UserId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("MatterId");
-
-                    b.HasIndex("MatterId", "InvoiceId");
-
-                    b.ToTable("expenses", "legal");
-                });
-
-            modelBuilder.Entity("Cortex.Modules.Legal.Persistence.Invoice", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset?>("ApprovedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("ApprovedByDisplay")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<Guid?>("ApprovedByUserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("CreatedBy")
-                        .HasColumnType("text");
-
-                    b.Property<Guid>("MatterId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Number")
-                        .IsRequired()
-                        .HasMaxLength(24)
-                        .HasColumnType("character varying(24)");
-
-                    b.Property<DateOnly>("PeriodEnd")
-                        .HasColumnType("date");
-
-                    b.Property<DateOnly?>("PeriodStart")
-                        .HasColumnType("date");
-
-                    b.Property<string>("PreparedByDisplay")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<Guid?>("PreparedByUserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset?>("SentAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("character varying(16)");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uuid");
-
-                    b.Property<decimal>("Total")
-                        .HasPrecision(14, 2)
-                        .HasColumnType("numeric(14,2)");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("UpdatedBy")
-                        .HasColumnType("text");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("MatterId");
-
-                    b.HasIndex("TenantId", "Number")
-                        .IsUnique();
-
-                    b.ToTable("invoices", "legal");
-                });
-
-            modelBuilder.Entity("Cortex.Modules.Legal.Persistence.InvoiceLine", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<decimal>("Amount")
-                        .HasPrecision(14, 2)
-                        .HasColumnType("numeric(14,2)");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("CreatedBy")
-                        .HasColumnType("text");
-
-                    b.Property<string>("Description")
-                        .IsRequired()
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)");
-
-                    b.Property<Guid>("InvoiceId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Kind")
-                        .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("character varying(16)");
-
-                    b.Property<DateOnly>("OccurredOn")
-                        .HasColumnType("date");
-
-                    b.Property<decimal?>("Quantity")
-                        .HasPrecision(7, 2)
-                        .HasColumnType("numeric(7,2)");
-
-                    b.Property<decimal?>("Rate")
-                        .HasPrecision(12, 2)
-                        .HasColumnType("numeric(12,2)");
-
-                    b.Property<Guid?>("SourceId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("UpdatedBy")
-                        .HasColumnType("text");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("InvoiceId");
-
-                    b.ToTable("invoice_lines", "legal");
                 });
 
             modelBuilder.Entity("Cortex.Modules.Legal.Persistence.Matter", b =>
@@ -722,58 +534,6 @@ namespace Cortex.Modules.Legal.Persistence.Migrations
                     b.ToTable("playbook_rules", "legal");
                 });
 
-            modelBuilder.Entity("Cortex.Modules.Legal.Persistence.RunningTimer", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ActivityCode")
-                        .HasMaxLength(8)
-                        .HasColumnType("character varying(8)");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("CreatedBy")
-                        .HasColumnType("text");
-
-                    b.Property<string>("Description")
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)");
-
-                    b.Property<Guid>("MatterId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("StartedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("UpdatedBy")
-                        .HasColumnType("text");
-
-                    b.Property<string>("UserDisplay")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<Guid?>("UserId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("MatterId");
-
-                    b.HasIndex("TenantId", "UserId")
-                        .IsUnique();
-
-                    b.ToTable("running_timers", "legal");
-                });
-
             modelBuilder.Entity("Cortex.Modules.Legal.Persistence.TenantClause", b =>
                 {
                     b.Property<Guid>("Id")
@@ -833,10 +593,6 @@ namespace Cortex.Modules.Legal.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<string>("ActivityCode")
-                        .HasMaxLength(8)
-                        .HasColumnType("character varying(8)");
-
                     b.Property<bool>("Billable")
                         .HasColumnType("boolean");
 
@@ -855,15 +611,8 @@ namespace Cortex.Modules.Legal.Persistence.Migrations
                         .HasPrecision(5, 2)
                         .HasColumnType("numeric(5,2)");
 
-                    b.Property<Guid?>("InvoiceId")
-                        .HasColumnType("uuid");
-
                     b.Property<Guid>("MatterId")
                         .HasColumnType("uuid");
-
-                    b.Property<decimal?>("Rate")
-                        .HasPrecision(12, 2)
-                        .HasColumnType("numeric(12,2)");
 
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid");
@@ -887,8 +636,6 @@ namespace Cortex.Modules.Legal.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("MatterId");
-
-                    b.HasIndex("MatterId", "InvoiceId");
 
                     b.HasIndex("TenantId", "WorkedOn");
 
@@ -965,33 +712,6 @@ namespace Cortex.Modules.Legal.Persistence.Migrations
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("Cortex.Modules.Legal.Persistence.Expense", b =>
-                {
-                    b.HasOne("Cortex.Modules.Legal.Persistence.Matter", null)
-                        .WithMany()
-                        .HasForeignKey("MatterId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("Cortex.Modules.Legal.Persistence.Invoice", b =>
-                {
-                    b.HasOne("Cortex.Modules.Legal.Persistence.Matter", null)
-                        .WithMany()
-                        .HasForeignKey("MatterId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("Cortex.Modules.Legal.Persistence.InvoiceLine", b =>
-                {
-                    b.HasOne("Cortex.Modules.Legal.Persistence.Invoice", null)
-                        .WithMany("Lines")
-                        .HasForeignKey("InvoiceId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
             modelBuilder.Entity("Cortex.Modules.Legal.Persistence.MatterDocument", b =>
                 {
                     b.HasOne("Cortex.Modules.Legal.Persistence.Matter", null)
@@ -1028,15 +748,6 @@ namespace Cortex.Modules.Legal.Persistence.Migrations
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("Cortex.Modules.Legal.Persistence.RunningTimer", b =>
-                {
-                    b.HasOne("Cortex.Modules.Legal.Persistence.Matter", null)
-                        .WithMany()
-                        .HasForeignKey("MatterId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
             modelBuilder.Entity("Cortex.Modules.Legal.Persistence.TimeEntry", b =>
                 {
                     b.HasOne("Cortex.Modules.Legal.Persistence.Matter", null)
@@ -1053,11 +764,6 @@ namespace Cortex.Modules.Legal.Persistence.Migrations
                         .HasForeignKey("MatterId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
-                });
-
-            modelBuilder.Entity("Cortex.Modules.Legal.Persistence.Invoice", b =>
-                {
-                    b.Navigation("Lines");
                 });
 
             modelBuilder.Entity("Cortex.Modules.Legal.Persistence.Matter", b =>
