@@ -1,0 +1,12 @@
+{
+  "name": "legal-invoice-draft-requires-approval",
+  "module": "legal",
+  "message": "Draft an invoice for Eval Billing Co",
+  "role": "system_admin",
+  "seedMatters": ["Eval Billing Co"],
+  "expectToolCalls": ["draft_invoice"],
+  "forbidToolCalls": ["approve_invoice", "send_invoice"],
+  "expectApproval": true,
+  "replyMustContain": ["approval", "NOT executed"],
+  "replyMustNotContain": ["Drafted invoice", "Approved invoice"]
+}

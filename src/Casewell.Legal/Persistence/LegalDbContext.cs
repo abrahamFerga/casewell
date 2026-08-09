@@ -28,6 +28,10 @@ public sealed class LegalDbContext(
     public DbSet<TimeEntry> TimeEntries => Set<TimeEntry>();
     public DbSet<MatterTask> MatterTasks => Set<MatterTask>();
     public DbSet<TrustTransaction> TrustTransactions => Set<TrustTransaction>();
+    public DbSet<RunningTimer> RunningTimers => Set<RunningTimer>();
+    public DbSet<Expense> Expenses => Set<Expense>();
+    public DbSet<Invoice> Invoices => Set<Invoice>();
+    public DbSet<InvoiceLine> InvoiceLines => Set<InvoiceLine>();
     public DbSet<TenantClause> Clauses => Set<TenantClause>();
     public DbSet<DocumentTemplate> DocumentTemplates => Set<DocumentTemplate>();
     public DbSet<PlaybookRule> PlaybookRules => Set<PlaybookRule>();
@@ -84,9 +88,71 @@ public sealed class LegalDbContext(
             b.Property(x => x.Description).HasMaxLength(1000).IsRequired();
             b.Property(x => x.UserDisplay).HasMaxLength(200);
             b.Property(x => x.Hours).HasPrecision(5, 2);
+            b.Property(x => x.ActivityCode).HasMaxLength(8);
+            b.Property(x => x.Rate).HasPrecision(12, 2);
             b.HasIndex(x => x.MatterId);
             b.HasIndex(x => new { x.TenantId, x.WorkedOn });
+            // Finding the unbilled entries is the draft's hot path.
+            b.HasIndex(x => new { x.MatterId, x.InvoiceId });
             b.HasOne<Matter>().WithMany().HasForeignKey(x => x.MatterId).OnDelete(DeleteBehavior.Cascade);
+            b.HasQueryFilter(x => x.TenantId == tenantContext.TenantId);
+        });
+
+        modelBuilder.Entity<RunningTimer>(b =>
+        {
+            b.ToTable("running_timers");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.ActivityCode).HasMaxLength(8);
+            b.Property(x => x.Description).HasMaxLength(1000);
+            b.Property(x => x.UserDisplay).HasMaxLength(200);
+            // One running timer per user: a second start is a mistake, not a second stopwatch, and
+            // the database is the only place that rule cannot be raced past.
+            b.HasIndex(x => new { x.TenantId, x.UserId }).IsUnique();
+            b.HasOne<Matter>().WithMany().HasForeignKey(x => x.MatterId).OnDelete(DeleteBehavior.Cascade);
+            b.HasQueryFilter(x => x.TenantId == tenantContext.TenantId);
+        });
+
+        modelBuilder.Entity<Expense>(b =>
+        {
+            b.ToTable("expenses");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Amount).HasPrecision(14, 2);
+            b.Property(x => x.Description).HasMaxLength(500).IsRequired();
+            b.Property(x => x.UserDisplay).HasMaxLength(200);
+            b.HasIndex(x => x.MatterId);
+            b.HasIndex(x => new { x.MatterId, x.InvoiceId });
+            b.HasOne<Matter>().WithMany().HasForeignKey(x => x.MatterId).OnDelete(DeleteBehavior.Cascade);
+            b.HasQueryFilter(x => x.TenantId == tenantContext.TenantId);
+        });
+
+        modelBuilder.Entity<Invoice>(b =>
+        {
+            b.ToTable("invoices");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Number).HasMaxLength(24).IsRequired();
+            b.Property(x => x.Status).HasConversion<string>().HasMaxLength(16);
+            b.Property(x => x.Total).HasPrecision(14, 2);
+            b.Property(x => x.PreparedByDisplay).HasMaxLength(200);
+            b.Property(x => x.ApprovedByDisplay).HasMaxLength(200);
+            b.HasIndex(x => new { x.TenantId, x.Number }).IsUnique();
+            b.HasIndex(x => x.MatterId);
+            b.HasMany(x => x.Lines).WithOne().HasForeignKey(l => l.InvoiceId).OnDelete(DeleteBehavior.Cascade);
+            // Restrict, not cascade: an issued bill is a financial record, and deleting a matter
+            // must not silently take the firm's billing history with it.
+            b.HasOne<Matter>().WithMany().HasForeignKey(x => x.MatterId).OnDelete(DeleteBehavior.Restrict);
+            b.HasQueryFilter(x => x.TenantId == tenantContext.TenantId);
+        });
+
+        modelBuilder.Entity<InvoiceLine>(b =>
+        {
+            b.ToTable("invoice_lines");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Kind).HasConversion<string>().HasMaxLength(16);
+            b.Property(x => x.Description).HasMaxLength(1000).IsRequired();
+            b.Property(x => x.Quantity).HasPrecision(7, 2);
+            b.Property(x => x.Rate).HasPrecision(12, 2);
+            b.Property(x => x.Amount).HasPrecision(14, 2);
+            b.HasIndex(x => x.InvoiceId);
             b.HasQueryFilter(x => x.TenantId == tenantContext.TenantId);
         });
 
