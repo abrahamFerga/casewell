@@ -27,13 +27,22 @@ internal static class ManualCrudEndpoints
 
         // ── Clients: the firm's contact book ────────────────────────────────────────────────
 
-        group.MapGet("/clients", async (LegalDbContext db, CancellationToken cancellationToken) =>
+        group.MapGet("/clients", async (
+                LegalDbContext db, ICurrentUser current, CancellationToken cancellationToken) =>
             {
-                var matterCounts = await db.Matters
-                    .Where(m => m.ClientName != null)
-                    .GroupBy(m => m.ClientName!)
-                    .Select(g => new { Name = g.Key, Count = g.Count() })
-                    .ToDictionaryAsync(g => g.Name, g => g.Count, StringComparer.OrdinalIgnoreCase, cancellationToken);
+                // The count is itself a disclosure: "the firm acts for this client on N matters"
+                // is the fact an ethical wall exists to withhold, so it is computed over the
+                // matters this caller may actually see — otherwise the Clients tab contradicts the
+                // Matters tab about the same client. Grouped in memory because Matter.WallAllows
+                // parses the JSON column and does not translate to SQL; the same reason every
+                // other wall-filtered surface in this module materializes first.
+                var matterCounts = (await db.Matters
+                        .Where(m => m.ClientName != null)
+                        .Select(m => new { m.ClientName, m.RestrictedUserIdsJson })
+                        .ToListAsync(cancellationToken))
+                    .Where(m => Matter.WallAllows(m.RestrictedUserIdsJson, current.UserId))
+                    .GroupBy(m => m.ClientName!, StringComparer.OrdinalIgnoreCase)
+                    .ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
                 var clients = (await db.Clients.OrderBy(c => c.Name).Take(500).ToListAsync(cancellationToken))
                     .Select(c => new ClientDto(
                         c.Id, c.Name, c.Email, c.Phone, c.Organization,
