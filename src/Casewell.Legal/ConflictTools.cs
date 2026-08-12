@@ -10,8 +10,9 @@ namespace Cortex.Modules.Legal;
 
 /// <summary>
 /// The tamper-evident conflict-check workflow (ADR-0006). check_conflicts searches every matter's
-/// parties and client names — INCLUDING walled matters, because a wall that hid conflicts would
-/// defeat the check's purpose — but masks matters the caller can't access ("a restricted matter"),
+/// parties and client names AND the firm's client book — INCLUDING walled matters, because a wall
+/// that hid conflicts would defeat the check's purpose — but masks matters the caller can't
+/// access ("a restricted matter"),
 /// so a hit is disclosed without leaking the matter itself. attest_conflict_check then freezes what
 /// was searched and found into the matter's append-only hash chain.
 /// </summary>
@@ -64,7 +65,7 @@ public sealed class ConflictTools(
         return $"Recorded {normalizedRole} party '{name}' on matter '{matter.Name}'.";
     }
 
-    [Description("Search the firm's matters for conflicts of interest against one or more names (clients, opposing parties, related entities). Read-only; finds hits even in restricted matters but does not reveal their details. Run this BEFORE opening a matter for a new client, then freeze the result with attest_conflict_check.")]
+    [Description("Search the firm's matters AND its client book for conflicts of interest against one or more names (clients, opposing parties, related entities). Read-only; catches former and prospective clients who are in the contact book but not yet on a matter, and finds hits even in restricted matters without revealing their details. Run this BEFORE opening a matter for a new client, then freeze the result with attest_conflict_check.")]
     public async Task<string> CheckConflicts(
         [Description("The names to check, separated by semicolons or newlines.")] string partyNames,
         CancellationToken cancellationToken = default)
@@ -170,17 +171,29 @@ public sealed class ConflictTools(
         return sb.ToString();
     }
 
-    private sealed record ConflictHit(string MatterName, string PartyName, string Role, bool Restricted);
+    /// <summary><paramref name="MatterName"/> is null for a hit that comes from the firm's client
+    /// book with no matter behind it yet — the former/prospective client case (ABA 1.9 / 1.18).</summary>
+    private sealed record ConflictHit(string? MatterName, string PartyName, string Role, bool Restricted);
 
     private async Task<List<ConflictHit>> SearchAsync(List<string> terms, CancellationToken cancellationToken)
     {
-        // Tenant-wide fetch of the search surface: parties plus each matter's client name. The wall
-        // is deliberately NOT applied to the search itself — it is applied to the *rendering*.
+        // Tenant-wide fetch of the search surface: parties, each matter's client name, and the
+        // firm's client book. The wall is deliberately NOT applied to the search itself — it is
+        // applied to the *rendering*. (Every DbSet here carries a per-entity HasQueryFilter, so
+        // "tenant-wide" means this tenant.)
         var matters = await db.Matters
             .Select(m => new { m.Id, m.Name, m.ClientName, m.RestrictedUserIdsJson })
             .ToListAsync(cancellationToken);
         var parties = await db.MatterParties
             .Select(p => new { p.MatterId, p.Name, p.Role })
+            .ToListAsync(cancellationToken);
+
+        // The contact book is in scope because a former or prospective client (ABA 1.9 / 1.18) has
+        // no matter yet: leaving it out returns a clean check for exactly the case the check
+        // exists to catch. The book is not wall-protected — GET /api/legal/clients already lists
+        // every row to anyone with legal.view — so a book hit discloses nothing new.
+        var book = await db.Clients
+            .Select(c => new { c.Name })
             .ToListAsync(cancellationToken);
 
         var byMatter = matters.ToDictionary(m => m.Id);
@@ -206,9 +219,28 @@ public sealed class ConflictTools(
                     hits.Add(new ConflictHit(restricted ? "a restricted matter" : m.Name, m.ClientName, "client", restricted));
                 }
             }
+
+            foreach (var c in book)
+            {
+                if (Matches(c.Name, term))
+                {
+                    hits.Add(new ConflictHit(null, c.Name, "client", false));
+                }
+            }
         }
 
-        return hits.DistinctBy(h => (h.MatterName, h.PartyName, h.Role)).ToList();
+        var deduped = hits.DistinctBy(h => (h.MatterName, h.PartyName, h.Role)).ToList();
+
+        // A book hit for a name that already surfaced on a matter is the same conflict reported
+        // twice, and the matter hit is strictly more informative — so the book only ever *adds* the
+        // names no matter has.
+        var onAMatter = deduped
+            .Where(h => h.MatterName is not null)
+            .Select(h => h.PartyName)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return deduped
+            .Where(h => h.MatterName is not null || !onAMatter.Contains(h.PartyName))
+            .ToList();
     }
 
     /// <summary>Symmetric case-insensitive containment: 'Initech' hits 'Initech LLC' and vice versa.</summary>
@@ -228,9 +260,12 @@ public sealed class ConflictTools(
         var sb = new StringBuilder($"POTENTIAL CONFLICTS — {hits.Count} hit(s) for {string.Join("; ", terms)}:\n");
         foreach (var h in hits)
         {
-            sb.AppendLine(h.Restricted
-                ? $"- '{h.PartyName}' ({h.Role}) appears on a RESTRICTED matter — ask a firm admin inside the wall to review."
-                : $"- '{h.PartyName}' ({h.Role}) on matter '{h.MatterName}'");
+            sb.AppendLine(h switch
+            {
+                { Restricted: true } => $"- '{h.PartyName}' ({h.Role}) appears on a RESTRICTED matter — ask a firm admin inside the wall to review.",
+                { MatterName: null } => $"- '{h.PartyName}' ({h.Role}) in the client book — no matter opened yet; treat as a former or prospective client.",
+                _ => $"- '{h.PartyName}' ({h.Role}) on matter '{h.MatterName}'",
+            });
         }
 
         return sb.ToString();
