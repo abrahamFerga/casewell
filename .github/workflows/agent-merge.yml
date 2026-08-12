@@ -1,10 +1,12 @@
-# The merger, on a schedule. Deterministic — no AI, no secrets, no third-party actions.
+# The merger, on a schedule. Deterministic — no AI and no third-party actions. Its write token is a
+# user PAT so GitHub emits synchronize and push events that GITHUB_TOKEN deliberately suppresses.
 #
 # Runs the same `merge-gate.mjs` that `/plenipo:ship` runs locally, so merging keeps working when the
 # machine that wrote the code is asleep, and so there is exactly ONE implementation of the gate list.
 #
-# It merges nothing until `autonomy.level` in workflow.json is >= 1, and it can never merge a PR that
-# lacks the `agent:approved` label — which only a review can add. Turn the whole thing off with the
+# It merges nothing until `autonomy.level` in workflow.json is >= 1. The deterministic gate reads
+# required checks, holds, mergeability and the repository's autonomy ceiling directly; advisory model
+# reviews are deliberately outside the merge authority path. Turn the whole thing off with the
 # repository variable AGENT_AUTOMERGE=off (Settings -> Variables), no commit required.
 #
 # Deliberately NOT `pull_request`-triggered: a schedule re-reads the world instead of trusting an
@@ -17,12 +19,14 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: write
+  checks: read
   contents: write
   pull-requests: write
   # Not optional, and not obvious. GitHub closes a `Closes #N` issue AS THE MERGING ACTOR, so a
   # `GITHUB_TOKEN` merge without this closes the pull request and silently leaves the issue open —
   # the board then advertises merged work forever and the next tick re-reads it as still to do.
-  # It fails quietly, on the happy path, which is why it survived weeks of green runs.
+  # It fails quietly, on the happy path, which is why it survived eight days of green runs.
   issues: write
 
 concurrency:
@@ -30,14 +34,36 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  triage-recovery:
+    name: Recover incomplete issue triage
+    if: vars.AGENT_TRIAGE_RECOVERY != 'off'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+      issues: read
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      # Issue events are still the fast path. This job bootstraps or renews a current-policy run,
+      # or re-runs a completed no-verdict attempt behind exponential backoff and a two-item cap.
+      - name: Recover missing triage verdicts
+        run: node .github/scripts/triage-retry.mjs --recover
+        env:
+          GH_TOKEN: ${{ github.token }}
+
   merge:
     name: Merge what passes every gate
     if: vars.AGENT_AUTOMERGE != 'off'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7.0.1
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
 
@@ -46,9 +72,9 @@ jobs:
       - name: Evaluate the gates
         run: node .github/scripts/merge-gate.mjs
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN || github.token }}
 
       - name: Merge
         run: node .github/scripts/merge-gate.mjs --merge
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN || github.token }}
