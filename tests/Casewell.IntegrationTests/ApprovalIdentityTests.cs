@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Cortex.Core.Platform;
@@ -167,16 +168,28 @@ public sealed class ApprovalIdentityTests(IntegrationFixture fixture)
     }
 
     /// <summary>
-    /// Attribution moves across a real authority boundary; authority does not move with it.
+    /// Attribution moves across a real authority boundary; neither side's authority moves with it.
     /// <para>
-    /// The two tests above run both subjects as <c>system_admin</c>, so they cannot tell an
-    /// attribution swap from an authority swap — a shim that wrongly restored the requester's
-    /// <b>permission set</b> as well would pass them both. Here the requester is a
+    /// The two tests above run both subjects as <c>system_admin</c>, so the identity they pin could
+    /// belong to either party without anything looking wrong. Here the requester is a
     /// <c>paralegal</c>, who holds <c>tools.legal.add_task</c> and emphatically not
     /// <c>approvals.manage</c> (that gap is #76), and the approver is <c>system_admin</c>. The
     /// paralegal parks a write they are entitled to park; the admin releases it; the record names
-    /// the paralegal. If the shim ever starts substituting permissions rather than identity, the
-    /// permission assertion at the end is what notices.
+    /// the paralegal.
+    /// </para>
+    /// <para>
+    /// <b>What the authority assertions at the end do and do not catch.</b> They re-read both
+    /// sessions after the release and require that the paralegal is still refused the approvals
+    /// queue and the admin is still granted it — so a shim that let a substituted permission set
+    /// <i>escape</i> its request turns this red in whichever direction it leaked. They do
+    /// <b>not</b> catch a substitution confined to the approval request itself: <c>RequestContext</c>
+    /// is a request-scoped object, not an <c>AsyncLocal</c>, so these later calls resolve against a
+    /// fresh instance and cannot observe what the approval request did to its own. Catching that
+    /// would need an assertion inside the tool body, which this suite has no seam for, and
+    /// <c>add_task</c> — inside the paralegal's grant either way — would not notice regardless.
+    /// The structural argument that only identity is ever written is the reflection over
+    /// <c>ApprovalRequesterIdentity</c> recorded in #85; this test is the leak guard beside it, not
+    /// a substitute for it.
     /// </para>
     /// </summary>
     [Fact]
@@ -227,6 +240,19 @@ public sealed class ApprovalIdentityTests(IntegrationFixture fixture)
             Assert.NotEqual(adminId, task.CreatedByUserId);
             Assert.Null(task.CreatedBy);
         }
+
+        // Neither session's authority survived the release altered. Read back through the pipeline
+        // rather than from a snapshot taken earlier, so a permission set that escaped the approval
+        // request would be visible here. Direction matters and both are asserted: the paralegal
+        // must not have gained the approver's reach, and the approver must not have been narrowed
+        // to the requester's.
+        Assert.Equal(HttpStatusCode.Forbidden, (await paralegal.GetAsync("/api/chat/approvals")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await admin.GetAsync("/api/chat/approvals")).StatusCode);
+
+        var paralegalGrants = await PermissionsAsync(paralegal);
+        Assert.Contains("tools.legal.add_task", paralegalGrants);
+        Assert.DoesNotContain("approvals.manage", paralegalGrants);
+        Assert.DoesNotContain("*", paralegalGrants);
     }
 
     private HttpClient Client(string subject, string displayName, string roles = "system_admin")
@@ -238,6 +264,10 @@ public sealed class ApprovalIdentityTests(IntegrationFixture fixture)
 
     private static async Task<Guid> UserIdAsync(HttpClient client) =>
         (await client.GetFromJsonAsync<JsonElement>("/api/platform/me")).GetProperty("userId").GetGuid();
+
+    private static async Task<HashSet<string?>> PermissionsAsync(HttpClient client) =>
+        [.. (await client.GetFromJsonAsync<JsonElement>("/api/platform/me"))
+            .GetProperty("permissions").EnumerateArray().Select(p => p.GetString())];
 
     private static async Task<string?> DisplayNameAsync(HttpClient client) =>
         (await client.GetFromJsonAsync<JsonElement>("/api/platform/me"))
