@@ -41,6 +41,8 @@
     "//required-check-gap": "`PR gates` is NOT in this repo's required status checks — only `Build & test` is. That is weaker than the sibling products and it should be fixed. It is not fatal today because agent-gates.yml still RUNS pr-gates.mjs, the result lands in the PR's status rollup, and merge-gate.mjs blocks on any red check whether or not GitHub calls it required. So the spine guard still bites; what is missing is GitHub's own enforcement on the merge button. Add `PR gates` to the required contexts.",
 
     "level": 3,
+    "//trustedAuthors": "Who may merge unattended. merge-gate.mjs authorizes by author identity now, not by a mutable `agent:approved` label anyone with write access could apply; an empty list means nothing merges. Adding a login here grants exactly what the old label lane already granted this repo.",
+    "trustedAuthors": ["abrahamFerga"],
     "maxOpenPRs": 3,
     "maxMergesPerTick": 2,
     "readyFloor": 3,
