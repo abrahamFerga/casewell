@@ -7,6 +7,8 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using System.Reflection;
 using System.Text.Json;
 
 namespace Cortex.Modules.Legal;
@@ -111,29 +113,68 @@ internal static class ApprovalRequesterIdentity
 
         public override JsonSerializerOptions JsonSerializerOptions => inner.JsonSerializerOptions;
 
+        // Every AIFunction member the base class exposes is forwarded, not just the ones the
+        // approval path happens to read. This wrapper sits in front of EVERY Legal tool on EVERY
+        // chat turn, so an unforwarded member does not degrade the shim — it silently empties that
+        // member product-wide.
+        public override IReadOnlyDictionary<string, object?> AdditionalProperties => inner.AdditionalProperties;
+
+        public override JsonElement? ReturnJsonSchema => inner.ReturnJsonSchema;
+
+        public override MethodInfo? UnderlyingMethod => inner.UnderlyingMethod;
+
         protected override async ValueTask<object?> InvokeCoreAsync(
             AIFunctionArguments arguments, CancellationToken cancellationToken)
         {
-            await RestoreRequesterAsync(cancellationToken).ConfigureAwait(false);
-            return await inner.InvokeAsync(arguments, cancellationToken).ConfigureAwait(false);
+            // The swap is undone whatever the tool does — including throwing. Everything the
+            // approve request performs AFTER the tool body is the approver's act, above all
+            // IApprovalStore.ResolveAsync, whose IAuditable columns and entity-change audit row are
+            // stamped from ICurrentUser at SaveChanges time. Leaving the requester in place there
+            // would erase the approver from the only record that names them.
+            var restoreApprover = await RestoreRequesterAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                return await inner.InvokeAsync(arguments, cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                restoreApprover?.Invoke();
+            }
         }
 
-        private async Task RestoreRequesterAsync(CancellationToken cancellationToken)
+        /// <summary>
+        /// Puts the requester on the scope for the duration of one tool call, returning the action
+        /// that puts the approver back, or null when nothing was swapped.
+        /// </summary>
+        private async Task<Action?> RestoreRequesterAsync(CancellationToken cancellationToken)
         {
             var http = scopedServices.GetService<IHttpContextAccessor>()?.HttpContext;
             if (http is null || ApprovalBeingResolved(http.Request.Path) is not Guid approvalId)
             {
-                return; // an ordinary chat turn — the caller already is the actor
+                return null; // an ordinary chat turn — the caller already is the actor
             }
 
             var context = scopedServices.GetRequiredService<RequestContext>();
 
+            // Captured BEFORE the swap, and the swap is refused if the approver cannot be put back
+            // faithfully: SetUser requires a non-null subject, so an unauthenticated scope has no
+            // restore to offer. Refusing costs the attribution fix on a path that cannot reach here
+            // (the approve route requires an authenticated approvals.manage holder) and guarantees
+            // the stronger property — this shim never leaves an identity behind it did not find.
+            if (context.UserId is not Guid approverId || context.Subject is not { } approverSubject)
+            {
+                Warn("the acting identity is incomplete, so the requester was not restored");
+                return null;
+            }
+
+            var approverDisplay = context.DisplayName;
+
             var pending = await scopedServices.GetRequiredService<IApprovalStore>()
                 .GetAsync(approvalId, cancellationToken).ConfigureAwait(false);
 
-            if (pending?.UserId is not Guid requesterId || requesterId == context.UserId)
+            if (pending?.UserId is not Guid requesterId || requesterId == approverId)
             {
-                return; // no recorded requester, or they approved their own call
+                return null; // no recorded requester, or they approved their own call
             }
 
             // The requester's OIDC subject is not on the approval record, and SetUser needs one
@@ -146,10 +187,21 @@ internal static class ApprovalRequesterIdentity
 
             if (requester is null)
             {
-                return; // cannot name them faithfully, so do not invent an identity
+                // Cannot name them faithfully, so do not invent an identity. This is the fail-open
+                // branch that matters: the write proceeds attributed to the approver, i.e. the
+                // defect #74 was filed on, quietly. Hence the warning.
+                Warn($"approval {approvalId} names requester {requesterId}, who is not readable in "
+                    + "this tenant; the write will be attributed to the approver");
+                return null;
             }
 
             context.SetUser(requesterId, requester.Subject, pending.UserDisplay ?? requester.DisplayName);
+            return () => context.SetUser(approverId, approverSubject, approverDisplay);
         }
+
+        private void Warn(string message) =>
+            scopedServices.GetService<ILoggerFactory>()
+                ?.CreateLogger(typeof(ApprovalRequesterIdentity))
+                .LogWarning("Approval requester identity: {Reason}.", message);
     }
 }

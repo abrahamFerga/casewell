@@ -1,5 +1,9 @@
 using System.Net.Http.Json;
 using System.Text.Json;
+using Cortex.Core.Platform;
+using Cortex.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace Casewell.IntegrationTests;
@@ -110,6 +114,55 @@ public sealed class ApprovalIdentityTests(IntegrationFixture fixture)
         // recorded as the preparer, that control can never fire.
         Assert.Equal(requesterName, preparedBy);
         Assert.NotEqual(approverName, preparedBy);
+    }
+
+    /// <summary>
+    /// The identity swap is scoped to the tool body and nothing else.
+    /// <para>
+    /// <c>ApprovalEndpoints</c> calls <c>executor.ExecuteAsync</c> and then
+    /// <c>store.ResolveAsync</c> on the <b>same</b> request scope, and <c>AuditInterceptor</c>
+    /// stamps <c>IAuditable.UpdatedBy</c> from whoever <c>ICurrentUser</c> names at
+    /// <c>SavingChangesAsync</c> time. So if the shim restores the requester and never puts the
+    /// approver back, the approval row it just resolved — and its entity-change audit entry — are
+    /// stamped with the requester, and the approver is recorded nowhere in the system on a path
+    /// that moves client money. This asserts the opposite: the write is the requester's, the
+    /// decision to release it stays the approver's.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task Resolving_an_approval_is_still_recorded_against_the_approver()
+    {
+        using var requester = Client("restore-requester", "Restoring Paralegal");
+        using var approver = Client("restore-approver", "Restoring Partner");
+
+        var requesterName = await DisplayNameAsync(requester);
+        var approverName = await DisplayNameAsync(approver);
+        Assert.NotEqual(requesterName, approverName);
+
+        const string matter = "Restore Co - Retainer";
+        await SeedMatterAsync(requester, matter);
+
+        var before = await PendingIdsAsync(requester);
+        await StreamTurnAsync(requester, $"Record a trust deposit of 1500 on '{matter}'");
+        var id = Assert.Single((await PendingIdsAsync(requester)).Except(before));
+
+        var approved = await approver.PostAsJsonAsync($"/api/chat/approvals/{id}/approve", new { });
+        approved.EnsureSuccessStatusCode();
+
+        // The tool ran as the requester — that is the fix this PR exists for, and it is asserted by
+        // the two tests above. This one reads the row the SAME request wrote afterwards.
+        var (scope, _, _) = await fixture.AuthorizedScopeAsync();
+        using (scope)
+        {
+            var resolved = await scope.ServiceProvider.GetRequiredService<PlatformDbContext>()
+                .PendingApprovals.AsNoTracking().SingleAsync(a => a.Id == id);
+
+            Assert.Equal(ApprovalStatus.Executed, resolved.Status);
+
+            // Without a finally around the tool body, UpdatedBy reads "Restoring Paralegal" here.
+            Assert.Equal(approverName, resolved.UpdatedBy);
+            Assert.NotEqual(requesterName, resolved.UpdatedBy);
+        }
     }
 
     private HttpClient Client(string subject, string displayName)
