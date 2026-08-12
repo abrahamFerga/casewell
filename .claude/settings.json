@@ -6,7 +6,8 @@
       "source": {
         "source": "github",
         "repo": "abrahamFerga/plenipo-agents"
-      }
+      },
+      "autoUpdate": true
     },
     "dotnet/skills": {
       "source": {
@@ -21,6 +22,7 @@
       }
     }
   },
+  "model": "claude-sonnet-5",
 
   "enabledPlugins": {
     "plenipo@plenipo-agents": true,
