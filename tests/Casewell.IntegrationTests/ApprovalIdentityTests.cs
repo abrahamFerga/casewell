@@ -2,6 +2,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Cortex.Core.Platform;
 using Cortex.Infrastructure.Persistence;
+using Cortex.Modules.Legal.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
@@ -165,12 +166,78 @@ public sealed class ApprovalIdentityTests(IntegrationFixture fixture)
         }
     }
 
-    private HttpClient Client(string subject, string displayName)
+    /// <summary>
+    /// Attribution moves across a real authority boundary; authority does not move with it.
+    /// <para>
+    /// The two tests above run both subjects as <c>system_admin</c>, so they cannot tell an
+    /// attribution swap from an authority swap — a shim that wrongly restored the requester's
+    /// <b>permission set</b> as well would pass them both. Here the requester is a
+    /// <c>paralegal</c>, who holds <c>tools.legal.add_task</c> and emphatically not
+    /// <c>approvals.manage</c> (that gap is #76), and the approver is <c>system_admin</c>. The
+    /// paralegal parks a write they are entitled to park; the admin releases it; the record names
+    /// the paralegal. If the shim ever starts substituting permissions rather than identity, the
+    /// permission assertion at the end is what notices.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task A_write_parked_by_a_paralegal_is_recorded_against_them_when_an_admin_releases_it()
     {
-        var client = fixture.AdminClient(subject: subject);
+        using var paralegal = Client("wall-paralegal", "Docketing Paralegal", roles: "paralegal");
+        using var admin = Client("wall-partner", "Releasing Partner");
+
+        var paralegalName = await DisplayNameAsync(paralegal);
+        var adminName = await DisplayNameAsync(admin);
+        Assert.NotEqual(paralegalName, adminName);
+
+        var paralegalId = await UserIdAsync(paralegal);
+        var adminId = await UserIdAsync(admin);
+        Assert.NotEqual(paralegalId, adminId);
+
+        // The paralegal baseline does not grant matter creation, so the matter is seeded by the
+        // admin — which is also the realistic shape: the firm opens the matter, the paralegal works
+        // it. It carries no ethical wall, so `legal.matters.view` is enough to reach it.
+        const string matter = "Docket Co - Litigation";
+        await SeedMatterAsync(admin, matter);
+
+        // A paralegal cannot read /api/chat/approvals at all (no approvals.manage — #76), so the
+        // queue is observed through the admin. That is the point: the two subjects genuinely differ
+        // in authority, not just in name.
+        var before = await PendingIdsAsync(admin);
+        await StreamTurnAsync(paralegal, $"add_task on '{matter}' titled 'Serve the notice'");
+        var id = Assert.Single((await PendingIdsAsync(admin)).Except(before));
+
+        var approved = await admin.PostAsJsonAsync($"/api/chat/approvals/{id}/approve", new { });
+        approved.EnsureSuccessStatusCode();
+        Assert.Equal(
+            "Executed",
+            (await approved.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("status").GetString());
+
+        var (scope, _, _) = await fixture.AuthorizedScopeAsync();
+        using (scope)
+        {
+            var task = await scope.ServiceProvider.GetRequiredService<LegalDbContext>()
+                .MatterTasks.AsNoTracking().SingleAsync(t => t.Title == "Serve the notice");
+
+            // The tool body's own attribution field, which for a module-owned entity is the whole
+            // record of who acted: LegalDbContext has no audit interceptor at all (#70), so
+            // IAuditable.CreatedBy is null here rather than naming anyone. Asserted explicitly so
+            // that when #70 lands and starts stamping it, this test is the thing that notices —
+            // and so nobody reads the absence as this shim failing to attribute the write.
+            Assert.Equal(paralegalId, task.CreatedByUserId);
+            Assert.NotEqual(adminId, task.CreatedByUserId);
+            Assert.Null(task.CreatedBy);
+        }
+    }
+
+    private HttpClient Client(string subject, string displayName, string roles = "system_admin")
+    {
+        var client = fixture.AdminClient(roles: roles, subject: subject);
         client.DefaultRequestHeaders.Add("X-Dev-Name", displayName);
         return client;
     }
+
+    private static async Task<Guid> UserIdAsync(HttpClient client) =>
+        (await client.GetFromJsonAsync<JsonElement>("/api/platform/me")).GetProperty("userId").GetGuid();
 
     private static async Task<string?> DisplayNameAsync(HttpClient client) =>
         (await client.GetFromJsonAsync<JsonElement>("/api/platform/me"))
