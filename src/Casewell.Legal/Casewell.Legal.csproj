@@ -24,6 +24,10 @@
     <PackageReference Include="Cortex.Core" Version="0.1.0-alpha.14" />
     <PackageReference Include="Cortex.Application" Version="0.1.0-alpha.14" />
     <PackageReference Include="Cortex.Modules.Sdk" Version="0.1.0-alpha.14" />
+    <!-- TODO(plenipo#153): only for the approval-requester identity shim, which needs
+         RequestContext and the platform user table to restore who actually asked for a gated
+         write. Drop this reference when the platform restores that identity itself. -->
+    <PackageReference Include="Cortex.Infrastructure" Version="0.1.0-alpha.14" />
   </ItemGroup>
 
 </Project>
