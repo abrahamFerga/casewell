@@ -58,6 +58,16 @@ builder.Services.AddCortexRole("firm-admin",
     "tools.documents.read_document", "tools.documents.list_documents",
     "tools.legal.*",
     LegalModule.ViewMatters, LegalModule.ViewClauses, LegalModule.ManageLibrary, LegalModule.Manage,
+    // The human at the other end of the approval gate (#76). Without this the shipped role set can
+    // park every gated write and release none — the gate is not tight, it is inoperable. This is
+    // the MINIMUM grant that makes it work: exactly one seeded role, and the one that already
+    // holds legal.manage. That matters, because legal.manage is the hand-edit surface — a firm
+    // admin can already write the record directly on a form with no approval at all, so releasing
+    // a write it parked in chat grants it no authority it did not have. Deliberately NOT given to
+    // paralegal: that baseline withholds legal.manage on purpose, so approving its own parked
+    // write would be the only signature on a record it cannot otherwise touch. Separation of
+    // duties is the reason the gate exists; a paralegal escalates to a firm admin.
+    Permissions.ManageApprovals,
 ]);
 
 // A law-office role between guest and user: paralegals work matters, the docket, and the
